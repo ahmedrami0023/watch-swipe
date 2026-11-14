@@ -38,12 +38,13 @@ export function Poster({ card, path = card.poster, size = "w780", className, alt
   );
 }
 
-function CardFace({ card, onTint, onDetails, onFav, children }) {
+function CardFace({ card, why, onTint, onDetails, onFav, children }) {
   return (
     <>
       <Poster card={card} className="art" onTint={onTint} />
       <div className="scrim" />
       <div className="info">
+        {why && <p className="why">{why}</p>}
         <h2>{card.title}</h2>
         <p className="sub">
           <span>
@@ -115,7 +116,7 @@ const cardVariants = {
   },
 };
 
-function SwipeCard({ card, raw, shared, pull, enterFrom, reduce, onRate, onDetails, onFav, onTint }) {
+function SwipeCard({ card, why, raw, shared, pull, enterFrom, reduce, onRate, onDetails, onFav, onTint }) {
   const isPresent = useIsPresent();
   const leaving = usePresenceData(); // { rating } once this card is on its way out
   const x = useMotionValue(0);
@@ -182,7 +183,7 @@ function SwipeCard({ card, raw, shared, pull, enterFrom, reduce, onRate, onDetai
       animate="center"
       exit="exit"
     >
-      <CardFace card={card} onTint={onTint} onDetails={onDetails} onFav={(id, point) => travel.current < 10 && onFav(id, point)}>
+      <CardFace card={card} why={why} onTint={onTint} onDetails={onDetails} onFav={(id, point) => travel.current < 10 && onFav(id, point)}>
         {Object.keys(BY_SWIPE).map((dir) => (
           <Stamp key={dir} dir={dir} x={x} y={y} />
         ))}
@@ -207,12 +208,12 @@ function Stamp({ dir, x, y }) {
 }
 
 // The next card, waiting underneath. It grows toward full size as the top card is pulled away.
-function Peek({ card, raw, pull, onTint }) {
+function Peek({ card, why, raw, pull, onTint }) {
   const scale = useTransform(pull, [0, 1], [0.94, 1]);
   const opacity = useTransform(pull, [0, 1], [0.5, 1]);
   return (
     <motion.article className="card peek tinted" aria-hidden="true" style={{ scale, opacity, "--raw": raw }}>
-      <CardFace card={card} onTint={onTint} />
+      <CardFace card={card} why={why} onTint={onTint} />
     </motion.article>
   );
 }
@@ -277,7 +278,7 @@ function Empty({ filtered, total, onFilters, onClear, onLists }) {
   );
 }
 
-export default function Deck({ deck, total, leaving, back, tints, reduce, filters, canUndo, onRate, onUndo, onDetails, onFav, onTint, onFilters, onClearFilters, onLists }) {
+export default function Deck({ deck, total, leaving, back, tints, whyOf, reduce, filters, canUndo, onRate, onUndo, onDetails, onFav, onTint, onFilters, onClearFilters, onLists }) {
   const [top, next, third] = deck;
   const dragX = useMotionValue(0);
   const dragY = useMotionValue(0);
@@ -301,12 +302,13 @@ export default function Deck({ deck, total, leaving, back, tints, reduce, filter
   return (
     <section className="deck">
       <div className="stage">
-        {next && <Peek key={next.id} card={next} raw={rawTint(next, tints[next.id])} pull={pull} onTint={onTint} />}
+        {next && <Peek key={next.id} card={next} why={whyOf(next.id)} raw={rawTint(next, tints[next.id])} pull={pull} onTint={onTint} />}
         <AnimatePresence custom={{ rating: leaving }} initial={false}>
           {top && (
             <SwipeCard
               key={top.id}
               card={top}
+              why={whyOf(top.id)}
               raw={rawTint(top, tints[top.id])}
               shared={shared}
               pull={pull}

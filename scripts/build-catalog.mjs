@@ -74,10 +74,15 @@ const services = (list = []) => [
 
 async function build({ media, id, group }, index) {
   const credits = media === "tv" ? "aggregate_credits" : "credits";
-  const d = await get(`/${media}/${id}`, { append_to_response: `${credits},watch/providers,external_ids` });
+  const d = await get(`/${media}/${id}`, { append_to_response: `${credits},watch/providers,external_ids,keywords,recommendations` });
   const date = d.release_date || d.first_air_date || "";
   if (!d.poster_path || !date) return null;
   const anime = group === "anime";
+  // For the recommender: theme keywords, and the titles TMDB's users pair with this one (two pages).
+  const kw = (d.keywords?.keywords || d.keywords?.results || []).slice(0, 12).map((k) => k.id);
+  let paired = d.recommendations?.results || [];
+  if ((d.recommendations?.total_pages || 0) > 1) paired = paired.concat((await get(`/${media}/${id}/recommendations`, { page: 2 })).results || []);
+  const recs = paired.map((r) => `${(r.media_type || media) === "tv" ? "t" : "m"}-${r.id}`);
   const us = d["watch/providers"]?.results?.US;
   const by = media === "tv" ? d.created_by?.map((c) => c.name) : d.credits?.crew?.filter((c) => c.job === "Director").map((c) => c.name);
   const facts =
@@ -101,6 +106,9 @@ async function build({ media, id, group }, index) {
     providers: services(us?.flatrate),
     watch: us?.link || null, // TMDB's where-to-watch page (data from JustWatch)
     imdb: d.external_ids?.imdb_id || null,
+    kw,
+    recs, // trimmed to titles in this catalogue once the whole list is known
+    col: d.belongs_to_collection?.id ?? null, // franchise, so the deck can avoid runs of sequels
     hue: (index * 47) % 360,
   };
 }
@@ -160,6 +168,15 @@ while (cards.length < built.length) {
     .filter((g) => taken[g] < lanes[g].length)
     .sort((a, b) => taken[a] / lanes[a].length - taken[b] / lanes[b].length)[0];
   cards.push(lanes[group][taken[group]++]);
+}
+
+// Recommendations only help if they point at titles we actually have.
+const have = new Set(cards.map((c) => c.id));
+for (const c of cards) c.recs = [...new Set(c.recs)].filter((id) => have.has(id) && id !== c.id);
+for (const [group, lane] of Object.entries(lanes)) {
+  const none = lane.filter((c) => c.recs.length === 0).length;
+  const mean = lane.reduce((sum, c) => sum + c.recs.length, 0) / lane.length;
+  console.log(`${group.padEnd(6)} links per title: ${mean.toFixed(1)} on average, ${none} of ${lane.length} have none; keywords on ${lane.filter((c) => c.kw.length).length}`);
 }
 
 const today = new Date().toLocaleDateString("en-CA"); // local date as YYYY-MM-DD

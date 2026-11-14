@@ -5,6 +5,7 @@ import { CARDS } from "./cards.js";
 import Deck from "./Deck.jsx";
 import { Lists, Search, You } from "./Pages.jsx";
 import { Details, Filters } from "./Sheets.jsx";
+import { rank } from "./learn.js";
 import { BY_ID, FILTER_STORE, NO_FILTERS, RATINGS, RATING_NAMES, STORE, filterCount, load, loadFilters, loadOrphans, matches, rawTint } from "./ratings.js";
 
 const TABS = [
@@ -68,8 +69,8 @@ function reducer(state, action) {
     }
     case "reset":
       return { swipes: [], leaving: null, back: null, note: "" };
-    case "settle": // the deck changed for another reason (filters): the top card must not leave as if it were rated
-      return state.leaving ? { ...state, leaving: null } : state;
+    case "settle": // the deck changed for another reason (filters): no rated-style exit, and Undo's card no longer jumps the queue
+      return state.leaving || state.back ? { ...state, leaving: null, back: null } : state;
     default:
       return state;
   }
@@ -114,12 +115,22 @@ export default function App() {
 
   const rated = useMemo(() => new Map(swipes.map((s) => [s.id, s.rating])), [swipes]);
   const unrated = useMemo(() => CARDS.filter((c) => !rated.has(c.id)), [rated]);
+  // The deck learns: everything is re-ranked from your ratings after each swipe, except the two cards
+  // already on screen (the one under the top card shows while you drag, so it must be the one that arrives).
+  // A card restored by Undo always comes back on top, even if filters would hide it.
+  const onScreen = useRef([]);
+  const whys = useRef(new Map()); // the one-line reason for each card, kept from the moment it was picked
   const deck = useMemo(() => {
-    const backId = state.back?.id;
-    const rest = unrated.filter((c) => matches(c, filters) && c.id !== backId);
-    const restored = backId && !rated.has(backId) ? BY_ID.get(backId) : null;
-    return restored ? [restored, ...rest] : rest;
-  }, [unrated, filters, state.back, rated]);
+    const pool = unrated.filter((c) => matches(c, filters));
+    const allowed = new Set(pool.map((c) => c.id));
+    const restored = state.back && !rated.has(state.back.id) && BY_ID.has(state.back.id) ? state.back.id : null;
+    const pinned = [...new Set([restored, ...onScreen.current])].filter((id) => id && (id === restored || allowed.has(id))).slice(0, 2);
+    const ranked = rank(swipes, pool, pinned, (id) => whys.current.get(id)?.from ?? null);
+    for (const r of ranked) whys.current.set(r.id, r);
+    const next = [...pinned, ...ranked.map((r) => r.id)].map((id) => BY_ID.get(id));
+    onScreen.current = next.slice(0, 2).map((c) => c.id);
+    return next;
+  }, [unrated, filters, state.back, rated, swipes]);
   const top = deck[0];
   const raw = top ? rawTint(top, tints[top.id]) : "#3a4250";
 
@@ -199,6 +210,13 @@ export default function App() {
                 leaving={state.leaving}
                 back={back}
                 tints={tints}
+                whyOf={(id) => {
+                  // A card on screen keeps the reason it was picked for, unless the rating behind that reason has since changed.
+                  const reason = whys.current.get(id);
+                  if (!reason?.why) return null;
+                  if (reason.from) return ["liked", "want"].includes(rated.get(reason.from)) ? reason.why : null;
+                  return swipes.length >= 3 ? reason.why : null;
+                }}
                 reduce={reduce}
                 filters={filterCount(filters)}
                 canUndo={swipes.length > 0}
@@ -214,8 +232,12 @@ export default function App() {
             )}
             {tab === "lists" && <Lists swipes={swipes} onOpen={setDetails} />}
             {tab === "search" && <Search swipes={swipes} onOpen={setDetails} />}
-            {tab === "you" && <You swipes={swipes} onImport={(fresh) => dispatch({ type: "import", swipes: fresh })} onReset={() => {
+            {tab === "you" && <You swipes={swipes} onImport={(fresh) => {
+              onScreen.current = []; // a batch of new ratings: rebuild the deck from the top
+              dispatch({ type: "import", swipes: fresh });
+            }} onReset={() => {
                 orphans.current = []; // "erase all" means all
+                onScreen.current = []; // and the deck starts over too
                 dispatch({ type: "reset" });
               }} />}
           </motion.main>

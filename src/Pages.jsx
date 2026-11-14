@@ -213,7 +213,8 @@ export function You({ swipes, onImport, onReset }) {
           </>
         )}
         <p className="quiet">
-          Rated {swipes.length} of {CARDS.length}.
+          Rated {swipes.length} of {CARDS.length}. The deck reorders itself after every rating; from about 8 ratings on, your taste counts for more than
+          popularity.
         </p>
       </div>
 

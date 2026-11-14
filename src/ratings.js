@@ -1,6 +1,9 @@
 // Shared rules: the five ratings, saved-data cleaning, and deck filters.
 import { BookmarkSimple, Heart, Question, Star, ThumbsDown, X } from "@phosphor-icons/react";
 import { CARDS, LEGACY_IDS } from "./cards.js";
+import { decadeOf, kindOf } from "./learn.js";
+
+export { decadeOf, kindOf };
 
 export const STORE = "watch-swipe:v2"; // saves the rating, not the gesture
 export const FILTER_STORE = "watch-swipe:filters";
@@ -39,7 +42,7 @@ export function clean(raw) {
   const known = new Set(BY_ID.keys());
   return raw
     .filter((s) => s && typeof s === "object" && Object.hasOwn(RATINGS, s.rating))
-    .map((s) => ({ id: (Object.hasOwn(LEGACY_IDS, s.id) && LEGACY_IDS[s.id]) || s.id, rating: s.rating, at: Number.isFinite(s.at) ? s.at : 0, ...(s.fav === true && { fav: true }) }))
+    .map((s) => ({ id: (Object.hasOwn(LEGACY_IDS, s.id) && LEGACY_IDS[s.id]) || s.id, rating: s.rating, at: Number.isFinite(s.at) ? s.at : 0, ...(s.fav === true && s.rating === "liked" && { fav: true }) }))
     .filter((s) => known.delete(s.id));
 }
 
@@ -105,8 +108,6 @@ for (const c of CARDS) for (const p of c.providers) serviceCount[p] = (serviceCo
 export const SERVICES = Object.entries(serviceCount).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([name]) => name);
 export const NO_FILTERS = { kinds: [], genres: [], decade: null, min: null, services: [] };
 
-export const kindOf = (card) => (card.type.startsWith("Anime") ? "anime" : card.type === "Movie" ? "movie" : "tv");
-export const decadeOf = (year) => (year >= 2020 ? "2020s" : year >= 2010 ? "2010s" : year >= 2000 ? "2000s" : year >= 1990 ? "1990s" : "Older");
 export const matches = (card, f) =>
   (!f.kinds.length || f.kinds.includes(kindOf(card))) &&
   (!f.genres.length || card.genres.some((g) => g.split(" & ").some((half) => f.genres.includes(half)))) &&

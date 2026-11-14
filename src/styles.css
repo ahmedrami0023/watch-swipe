@@ -230,6 +230,22 @@ button:disabled,
   display: grid;
   gap: 8px;
 }
+/* Why this card is here. Shown only when the pick really came from your ratings. */
+.why {
+  justify-self: start;
+  max-width: 100%;
+  padding: 6px 12px;
+  border-radius: 14px; /* a long reason wraps to two lines, so not a full pill */
+  background: color-mix(in oklch, var(--tint) 30%, rgb(12 13 16 / 0.86));
+  border: 1px solid rgb(255 255 255 / 0.14);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.25;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
 .info h2 {
   font-size: clamp(32px, 11vw, 44px);
   font-weight: 750;
