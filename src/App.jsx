@@ -1,362 +1,231 @@
-import { useEffect, useReducer, useRef, useState } from "react";
-import { flushSync } from "react-dom";
-import {
-  AnimatePresence,
-  motion,
-  useIsPresent,
-  useMotionValue,
-  useReducedMotion,
-  useTransform,
-} from "motion/react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { AnimatePresence, MotionConfig, motion, useReducedMotion } from "motion/react";
+import { Cards, ListBullets, UserCircle } from "@phosphor-icons/react";
 import { CARDS } from "./cards.js";
+import Deck from "./Deck.jsx";
+import { Lists, You } from "./Pages.jsx";
+import { Details, Filters } from "./Sheets.jsx";
+import { BY_ID, FILTER_STORE, NO_FILTERS, RATINGS, RATING_NAMES, STORE, filterCount, load, loadFilters, matches, rawTint } from "./ratings.js";
 
-const STORE = "watch-swipe:v2"; // v2 saves the rating, not the gesture
-const DOUBLE_TAP = 320; // ms between two taps that count as a double-tap
-const THRESHOLD = 90; // px of travel that commits a swipe
-const FLICK = 600; // px/s that commits a short, fast swipe
+const TABS = [
+  { id: "swipe", label: "Swipe", Icon: Cards },
+  { id: "lists", label: "Lists", Icon: ListBullets },
+  { id: "you", label: "You", Icon: UserCircle },
+];
 
-// Left/right handle titles you haven't seen (the common case); double-tap is the usual "like".
-const RATINGS = {
-  pass: { label: "Not interested", prefix: "", short: "Not interested", swipe: "left", key: "ArrowLeft", glyph: "←" },
-  disliked: { label: "Seen it, didn't like it", prefix: "Seen it, ", short: "Didn't like it", swipe: "down", key: "ArrowDown", glyph: "↓" },
-  liked: { label: "Seen it, liked it", prefix: "Seen it, ", short: "Liked it", swipe: null, key: "l", glyph: "2×" },
-  unsure: { label: "Haven't seen it, not sure", prefix: "Haven't seen it, ", short: "Not sure", swipe: "up", key: "ArrowUp", glyph: "↑" },
-  want: { label: "Want to watch", prefix: "", short: "Want to watch", swipe: "right", key: "ArrowRight", glyph: "→" },
-};
-const RATING_NAMES = Object.keys(RATINGS);
-const BY_SWIPE = Object.fromEntries(RATING_NAMES.filter((r) => RATINGS[r].swipe).map((r) => [RATINGS[r].swipe, r]));
-
-// Saved swipes are untrusted input: keep only known cards and ratings, one entry per card.
-function load() {
-  try {
-    const raw = JSON.parse(localStorage.getItem(STORE) ?? "[]");
-    if (!Array.isArray(raw)) return [];
-    const known = new Set(CARDS.map((c) => c.id));
-    return raw.filter((s) => s && Object.hasOwn(RATINGS, s.rating) && known.delete(s.id));
-  } catch {
-    return [];
-  }
-}
-
-// Cards not swiped yet, in deck order. [0] is the one on top.
-const remaining = (swipes) => {
-  const done = new Set(swipes.map((s) => s.id));
-  return CARDS.filter((c) => !done.has(c.id));
-};
-
+// leaving: the rating the last card left with (drives its exit). back: the swipe Undo just restored (drives its return).
 function reducer(state, action) {
-  if (action.type === "swipe") {
-    const [card, next] = remaining(state.swipes);
-    // A drag names its card, so a late drag on a card that is already flying off is ignored.
-    if (!card || (action.id && action.id !== card.id)) return state;
-    return {
-      swipes: [...state.swipes, { id: card.id, rating: action.rating, at: action.at }],
-      exit: action.rating,
-      note: `${card.title}: ${RATINGS[action.rating].label}. ${next ? `Next: ${next.title}` : "Deck finished"}`,
-    };
+  const has = (id) => state.swipes.some((s) => s.id === id);
+  const title = (id) => BY_ID.get(id).title;
+  switch (action.type) {
+    case "rate":
+      // Naming the card means a late drag on one that is already flying off is ignored.
+      if (!BY_ID.has(action.id) || has(action.id)) return state;
+      return {
+        swipes: [...state.swipes, { id: action.id, rating: action.rating, at: action.at }],
+        leaving: action.rating,
+        back: null,
+        note: `${title(action.id)}: ${RATINGS[action.rating].label}`,
+      };
+    case "undo": {
+      const last = state.swipes.at(-1);
+      if (!last) return state;
+      return { swipes: state.swipes.slice(0, -1), leaving: null, back: last, note: `Undid. Back to ${title(last.id)}` };
+    }
+    case "set": // change a rating from a list
+      if (!has(action.id)) return state;
+      return {
+        swipes: state.swipes.map((s) => (s.id === action.id ? { ...s, rating: action.rating } : s)),
+        leaving: null,
+        back: null,
+        note: `${title(action.id)}: ${RATINGS[action.rating].label}`,
+      };
+    case "remove":
+      if (!has(action.id)) return state;
+      return { swipes: state.swipes.filter((s) => s.id !== action.id), leaving: null, back: null, note: `${title(action.id)} is back in the deck` };
+    case "import": {
+      const fresh = action.swipes.filter((s) => !has(s.id));
+      return { swipes: [...state.swipes, ...fresh], leaving: null, back: null, note: "" }; // the You page announces it
+    }
+    case "reset":
+      return { swipes: [], leaving: null, back: null, note: "" };
+    case "settle": // the deck changed for another reason (filters): the top card must not leave as if it were rated
+      return state.leaving ? { ...state, leaving: null } : state;
+    default:
+      return state;
   }
-  if (action.type === "undo") {
-    const last = state.swipes.at(-1);
-    if (!last) return state;
-    const title = CARDS.find((c) => c.id === last.id).title;
-    // exit: null makes the card that was on top vanish instead of flying off as if it had been rated.
-    return { swipes: state.swipes.slice(0, -1), exit: null, note: `Undid. Back to ${title}` };
-  }
-  if (action.type === "reset") return { swipes: [], exit: null, note: `Deck reset. Next: ${CARDS[0].title}` };
-  return state;
 }
 
-export default function App() {
-  const [state, dispatch] = useReducer(reducer, null, () => ({ swipes: load(), exit: null, note: "" }));
-  const [saveFailed, setSaveFailed] = useState(false);
-  const [details, setDetails] = useState(null); // the card whose details sheet is open
-  const detailsOpen = useRef(false);
-  detailsOpen.current = !!details;
-  const reduce = useReducedMotion();
-  const controls = useRef(null);
-  const { swipes } = state;
-  const [top, peek] = remaining(swipes);
-
-  const rate = (rating, id) => dispatch({ type: "swipe", rating, id, at: Date.now() });
-  const reset = () => {
-    flushSync(() => dispatch({ type: "reset" }));
-    controls.current?.querySelector("button")?.focus(); // Start over just unmounted, so hand focus on
-  };
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORE, JSON.stringify(swipes));
-      setSaveFailed(false);
-    } catch {
-      setSaveFailed(true);
-    }
-  }, [swipes]);
-
-  useEffect(() => {
-    const onKey = (e) => {
-      if (detailsOpen.current || e.repeat || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
-      const rating = RATING_NAMES.find((r) => RATINGS[r].key === e.key);
-      if (!rating) return;
-      e.preventDefault();
-      dispatch({ type: "swipe", rating, at: Date.now() });
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
-
+// A ring and a few sparks where a double-tap landed.
+function Burst({ at, onDone }) {
   return (
-    <div className="app">
-      <header className="bar">
-        <h1>Watch Swipe</h1>
-        <p className="count">
-          {swipes.length} of {CARDS.length}
-        </p>
-        <button className="ghost" onClick={() => dispatch({ type: "undo" })} aria-disabled={!swipes.length}>
-          Undo
-        </button>
-      </header>
-
-      <main className="stage">
-        {peek && <CardFace card={peek} className="card peek" aria-hidden="true" />}
-        <AnimatePresence custom={{ rating: state.exit, reduce }} initial={false}>
-          {top && <SwipeCard key={top.id} card={top} onRate={rate} onDetails={setDetails} reduce={reduce} />}
-        </AnimatePresence>
-        {!top && <Finished swipes={swipes} onReset={reset} />}
-      </main>
-
-      <nav className="controls" aria-label="Rate this title" ref={controls}>
-        {RATING_NAMES.map((rating) => (
-          <button
-            key={rating}
-            data-rating={rating}
-            onClick={() => rate(rating)}
-            disabled={!top}
-            aria-keyshortcuts={RATINGS[rating].key}
-          >
-            <span className="arrow" aria-hidden="true">
-              {RATINGS[rating].glyph}
-            </span>
-            <span>
-              <span className="sr-only">{RATINGS[rating].prefix}</span>
-              {RATINGS[rating].short}
-            </span>
-          </button>
-        ))}
-      </nav>
-
-      {details && <Details card={details} onClose={() => setDetails(null)} />}
-
-      {saveFailed && (
-        <p className="warn" role="alert">
-          Swipes are not being saved on this device.
-        </p>
-      )}
-      <p className="sr-only" aria-live="polite">
-        {state.note}
-      </p>
+    <div className="burst" style={{ left: at.x, top: at.y }} aria-hidden="true">
+      <motion.span className="ring" initial={{ scale: 0, opacity: 1 }} animate={{ scale: 2.4, opacity: 0 }} transition={{ duration: 0.36, ease: "easeOut" }} />
+      {Array.from({ length: 8 }, (_, i) => {
+        const angle = (i / 8) * 2 * Math.PI;
+        const reach = 70 + (i % 3) * 18;
+        return (
+          <motion.span
+            key={i}
+            className="spark"
+            initial={{ x: 0, y: 0, opacity: 1 }}
+            animate={{ x: Math.cos(angle) * reach, y: Math.sin(angle) * reach, opacity: 0 }}
+            transition={{ duration: 0.4, ease: "easeOut", delay: i * 0.012 }}
+            onAnimationComplete={i === 7 ? onDone : undefined}
+          />
+        );
+      })}
     </div>
   );
 }
 
-function CardFace({ as: Tag = "article", card, onDetails, children, ...rest }) {
-  return (
-    <Tag {...rest}>
-      <div className="poster" style={{ "--hue": card.hue }}>
-        {card.image && <img src={card.image} alt="" draggable="false" />}
-        <h2>{card.title}</h2>
-      </div>
-      <div className="meta">
-        {onDetails && (
-          <button className="ghost info" onClick={() => onDetails(card)}>
-            Details
-          </button>
-        )}
-        <p className="kind">
-          {card.type} · {card.year}
-        </p>
-        <p className="genres">{card.genres}</p>
-        <dl className="scores">
-          <div>
-            <dt>IMDb</dt>
-            <dd>soon</dd>
-          </div>
-          <div>
-            <dt>Rotten Tomatoes</dt>
-            <dd>soon</dd>
-          </div>
-        </dl>
-      </div>
-      {children}
-    </Tag>
-  );
-}
+export default function App() {
+  const [state, dispatch] = useReducer(reducer, null, () => ({ swipes: load(), leaving: null, back: null, note: "" }));
+  const [tab, setTab] = useState("swipe");
+  const [filters, setFilters] = useState(loadFilters);
+  const [details, setDetails] = useState(null); // id of the title whose details sheet is open
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [tints, setTints] = useState({}); // colours read from posters, by card id
+  const [burst, setBurst] = useState(null);
+  const [saveFailed, setSaveFailed] = useState(false);
+  const reduce = useReducedMotion();
+  const root = useRef(null);
+  const { swipes } = state;
 
-const cardVariants = {
-  enter: { scale: 0.95 },
-  // x, y and opacity are named so a card whose exit is cut short by Undo animates back to rest.
-  center: { scale: 1, x: 0, y: 0, opacity: 1 },
-  exit: ({ rating, reduce }) => {
-    if (!rating) return { opacity: 0, transition: { duration: 0 } }; // replaced by Undo, not rated
-    const dir = RATINGS[rating].swipe;
-    if (!dir) return { scale: 1.08, opacity: 0, transition: { duration: reduce ? 0.01 : 0.25 } }; // double-tap: pops
-    const off = dir === "left" || dir === "right" ? { x: dir === "right" ? 640 : -640 } : { y: dir === "down" ? 900 : -900 };
-    // The spring picks up the finger's release speed, so a flick keeps its momentum.
-    const transition = reduce
-      ? { duration: 0.01 }
-      : { default: { type: "spring", bounce: 0, visualDuration: 0.3 }, opacity: { duration: 0.28, ease: "easeIn" } };
-    return { ...off, opacity: 0, transition };
-  },
-};
+  const rated = useMemo(() => new Map(swipes.map((s) => [s.id, s.rating])), [swipes]);
+  const unrated = useMemo(() => CARDS.filter((c) => !rated.has(c.id)), [rated]);
+  const deck = useMemo(() => {
+    const backId = state.back?.id;
+    const rest = unrated.filter((c) => matches(c, filters) && c.id !== backId);
+    const restored = backId && !rated.has(backId) ? BY_ID.get(backId) : null;
+    return restored ? [restored, ...rest] : rest;
+  }, [unrated, filters, state.back, rated]);
+  const top = deck[0];
+  const raw = top ? rawTint(top, tints[top.id]) : "#3a4250";
 
-function SwipeCard({ card, onRate, onDetails, reduce }) {
-  const lastTap = useRef(0);
-  const single = useRef(0); // timer that turns a lone tap on the picture into "open details"
-  useEffect(() => () => clearTimeout(single.current), []);
-  const isPresent = useIsPresent();
-  const x = useMotionValue(0);
-  const y = useMotionValue(0);
-  const rotate = useTransform(x, [-240, 240], reduce ? [0, 0] : [-9, 9]);
-
-  const onDragEnd = (_, { offset, velocity }) => {
-    const horizontal = Math.abs(offset.x) > Math.abs(offset.y);
-    const dist = horizontal ? offset.x : offset.y;
-    const speed = horizontal ? velocity.x : velocity.y;
-    const flicked = Math.abs(dist) > 24 && dist * speed > 0 && Math.abs(speed) > FLICK;
-    if (Math.abs(dist) < THRESHOLD && !flicked) return; // springs back via dragSnapToOrigin
-    onRate(BY_SWIPE[horizontal ? (dist > 0 ? "right" : "left") : dist > 0 ? "down" : "up"], card.id);
-  };
-
-  // Motion only fires onTap when the press did not turn into a drag.
-  const onTap = (e) => {
-    if (e.target.closest?.("button")) return; // the Details button handles itself
-    clearTimeout(single.current);
-    if (e.timeStamp - lastTap.current < DOUBLE_TAP) {
-      lastTap.current = 0;
-      return onRate("liked", card.id);
-    }
-    lastTap.current = e.timeStamp;
-    // Wait out the double-tap window before treating it as a single tap.
-    if (e.target.closest?.(".poster")) single.current = setTimeout(() => onDetails(card), DOUBLE_TAP);
-  };
-
-  return (
-    <CardFace
-      as={motion.article}
-      card={card}
-      onDetails={onDetails}
-      className="card"
-      aria-label={`${card.title}, ${card.type}, ${card.year}`}
-      style={{ x, y, rotate, zIndex: isPresent ? 1 : 2, pointerEvents: isPresent ? "auto" : "none" }}
-      drag={isPresent}
-      dragSnapToOrigin
-      onDragEnd={onDragEnd}
-      onTap={onTap}
-      variants={cardVariants}
-      custom={{ rating: null, reduce }}
-      initial="enter"
-      animate="center"
-      exit="exit"
-    >
-      {Object.keys(BY_SWIPE).map((dir) => (
-        <Stamp key={dir} dir={dir} x={x} y={y} />
-      ))}
-    </CardFace>
-  );
-}
-
-// Fades in the label for whichever direction the card is currently being pulled.
-function Stamp({ dir, x, y }) {
-  const opacity = useTransform(() => {
-    const dx = x.get();
-    const dy = y.get();
-    const horizontal = Math.abs(dx) > Math.abs(dy);
-    if ((dir === "left" || dir === "right") !== horizontal) return 0;
-    const pull = dir === "right" ? dx : dir === "left" ? -dx : dir === "down" ? dy : -dy;
-    return Math.min(Math.max(pull / THRESHOLD, 0), 1);
-  });
-  return (
-    <motion.span className="stamp" data-dir={dir} style={{ opacity }} aria-hidden="true">
-      {RATINGS[BY_SWIPE[dir]].label}
-    </motion.span>
-  );
-}
-
-function Details({ card, onClose }) {
-  const dialog = useRef(null);
-  useEffect(() => {
-    dialog.current.showModal();
+  const rate = useCallback((rating, id, point) => {
+    dispatch({ type: "rate", rating, id, at: Date.now() });
+    if (point) setBurst({ ...point, key: Date.now() });
   }, []);
+  const onTint = useCallback((id, colour) => setTints((t) => (t[id] ? t : { ...t, [id]: colour })), []);
+  // Blur is expensive under a moving card, so glass goes solid for the length of a drag (no re-render).
+  const onDragging = useCallback((on) => root.current?.toggleAttribute("data-dragging", on), []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORE, JSON.stringify(swipes));
+      localStorage.setItem(FILTER_STORE, JSON.stringify(filters));
+      setSaveFailed(false);
+    } catch {
+      setSaveFailed(true);
+    }
+  }, [swipes, filters]);
+
+  // Arrow keys and L rate the top card, but only on the swipe tab with no sheet open.
+  const keys = useRef(null);
+  keys.current = tab === "swipe" && !details && !filtersOpen ? top?.id : null;
+  useEffect(() => {
+    const onKey = (e) => {
+      if (!keys.current || e.repeat || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+      const rating = RATING_NAMES.find((r) => RATINGS[r].key === e.key);
+      if (!rating) return;
+      e.preventDefault();
+      rate(rating, keys.current);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [rate]);
+
+  const backKey = state.back ? `${state.back.id}:${state.back.at}` : null;
+  const flown = useRef(null);
+  const back = flown.current === backKey ? null : state.back;
+  useEffect(() => {
+    if (tab === "swipe") flown.current = backKey;
+  }, [backKey, tab]);
+
+  // Worded once per action, so switching tabs or filters never re-announces an old message.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const live = useMemo(() => (state.note && tab === "swipe" ? `${state.note}. ${top ? `Next: ${top.title}` : "Nothing left in the deck"}` : state.note), [state]);
+  const applyFilters = (next) => {
+    dispatch({ type: "settle" });
+    setFilters(next);
+  };
+
+  // Ask the browser not to evict saved ratings (a no-op where unsupported).
+  useEffect(() => {
+    navigator.storage?.persist?.().catch(() => {});
+  }, []);
+
+  const detailsCard = details && BY_ID.get(details);
+
   return (
-    <dialog
-      className="details"
-      ref={dialog}
-      onClose={onClose}
-      onClick={(e) => e.target === dialog.current && dialog.current.close()} // tap outside the sheet
-      aria-labelledby="details-title"
-    >
-      <div className="sheet">
-        <button className="ghost close" onClick={() => dialog.current.close()}>
-          Close
-        </button>
-        {card.image && (
-          <div className="poster">
-            <img src={card.image} alt={`Poster for ${card.title}`} />
-          </div>
+    <MotionConfig reducedMotion="user">
+      <div className="app tinted" ref={root} style={{ "--raw": raw }}>
+        {/* Ambient glow in the top card's colour. Two layers cross-fade; the gradient itself never animates. */}
+        <div className="ambient" aria-hidden="true">
+          <AnimatePresence initial={false}>
+            <motion.div key={raw} className="tinted" style={{ "--raw": raw }} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.6 }} />
+          </AnimatePresence>
+        </div>
+
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.main key={tab} className="screen" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.18 }}>
+            {tab === "swipe" && (
+              <Deck
+                deck={deck}
+                total={CARDS.length}
+                leaving={state.leaving}
+                back={back}
+                tints={tints}
+                reduce={reduce}
+                filters={filterCount(filters)}
+                canUndo={swipes.length > 0}
+                onRate={rate}
+                onUndo={() => dispatch({ type: "undo" })}
+                onDetails={setDetails}
+                onTint={onTint}
+                onFilters={() => setFiltersOpen(true)}
+                onClearFilters={() => applyFilters(NO_FILTERS)}
+                onLists={() => setTab("lists")}
+                onDragging={onDragging}
+              />
+            )}
+            {tab === "lists" && <Lists swipes={swipes} onOpen={setDetails} />}
+            {tab === "you" && <You swipes={swipes} onImport={(fresh) => dispatch({ type: "import", swipes: fresh })} onReset={() => dispatch({ type: "reset" })} />}
+          </motion.main>
+        </AnimatePresence>
+
+        <nav className="tabs glass" aria-label="Sections">
+          {TABS.map(({ id, label, Icon }) => (
+            <button key={id} aria-current={tab === id ? "page" : undefined} onClick={() => setTab(id)}>
+              {tab === id && <motion.span layoutId="tab-pill" className="tab-pill" transition={{ type: "spring", bounce: 0.2, visualDuration: 0.3 }} />}
+              <Icon size={24} weight={tab === id ? "fill" : "regular"} aria-hidden="true" />
+              <span>{label}</span>
+            </button>
+          ))}
+        </nav>
+
+        {detailsCard && (
+          <Details
+            card={detailsCard}
+            rating={rated.get(details) ?? null}
+            onPick={(id, rating) => (rated.has(id) ? dispatch({ type: "set", id, rating }) : rate(rating, id))}
+            onRemove={(id) => dispatch({ type: "remove", id })}
+            onClose={() => setDetails(null)}
+          />
         )}
-        <h2 id="details-title">{card.title}</h2>
-        <p className="kind">
-          {card.type} · {card.year}
-        </p>
-        <p className="genres">{card.genres}</p>
-        <dl className="scores">
-          <div>
-            <dt>IMDb</dt>
-            <dd>soon</dd>
-          </div>
-          <div>
-            <dt>Rotten Tomatoes</dt>
-            <dd>soon</dd>
-          </div>
-          <div>
-            <dt>Where to stream</dt>
-            <dd>soon</dd>
-          </div>
-        </dl>
-        {card.summary && <p className="summary">{card.summary}</p>}
-        {card.source && (
-          <p className="credit">
-            Summary{card.image ? " and image" : ""} from{" "}
-            <a href={card.source} target="_blank" rel="noreferrer">
-              Wikipedia
-            </a>
-            . Cast, runtime and scores arrive with real data.
+        {filtersOpen && <Filters filters={filters} unrated={unrated} onApply={applyFilters} onClose={() => setFiltersOpen(false)} />}
+        {burst && <Burst key={burst.key} at={burst} onDone={() => setBurst(null)} />}
+
+        {saveFailed && (
+          <p className="warn" role="alert">
+            Ratings are not being saved on this device.
           </p>
         )}
+        <p className="sr-only" aria-live="polite">
+          {live}
+        </p>
       </div>
-    </dialog>
-  );
-}
-
-function Finished({ swipes, onReset }) {
-  // The rating buttons just became disabled, so move focus here instead of losing it.
-  const heading = useRef(null);
-  useEffect(() => heading.current?.focus(), []);
-  return (
-    <section className="finished">
-      <h2 tabIndex={-1} ref={heading}>
-        Deck finished
-      </h2>
-      <dl>
-        {["liked", "disliked", "want", "unsure", "pass"].map((rating) => (
-          <div key={rating}>
-            <dt>{RATINGS[rating].label}</dt>
-            <dd>{swipes.filter((s) => s.rating === rating).length}</dd>
-          </div>
-        ))}
-      </dl>
-      <button className="ghost" onClick={onReset}>
-        Start over
-      </button>
-    </section>
+    </MotionConfig>
   );
 }
