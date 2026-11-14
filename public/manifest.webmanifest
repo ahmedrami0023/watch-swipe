@@ -1,0 +1,8 @@
+{
+  "name": "Watch Swipe",
+  "short_name": "Watch Swipe",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#0d0e10",
+  "theme_color": "#0d0e10"
+}
