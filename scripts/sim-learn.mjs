@@ -1,5 +1,5 @@
-// Does the deck actually learn? Made-up viewers with hidden tastes swipe 60 cards each,
-// once with the learning deck and once with the plain best-known-first deck, and we compare.
+// Does the deck actually learn, and does it look around before it narrows? Made-up viewers with hidden tastes
+// swipe 60 cards each, once with the learning deck and once with the plain best-known-first deck, and we compare.
 // Each viewer is run a few times with different random-looking (but fixed) noise, and the results are averaged.
 // No network, nothing random.   Run: npm run sim
 // To try a setting without editing code:  MATCH=1 HABITS=2 npm run sim   (names are the keys of TUNING)
@@ -14,9 +14,12 @@ for (const key of Object.keys(TUNING)) {
 const N = CARDS.length;
 const SWIPES = 60;
 const SEEDS = 10;
+const START = 15; // the first cards, which should be a broad sample rather than more of the first thing you liked
 const BY_ID = new Map(CARDS.map((c) => [c.id, c]));
 const genresOf = (c) => c.genres.flatMap((g) => g.split(" & "));
 const by = (c, name) => (c.by?.names ?? []).includes(name);
+const has = (c, genre) => genresOf(c).includes(genre);
+const RANK = new Map(CARDS.map((c, i) => [c.id, i])); // 0 = the best-known title
 
 // Same number every time for the same text, spread over 0..1.
 function hash(text) {
@@ -44,6 +47,8 @@ const ACTORS = everyOther(most((c) => c.cast, 60));
 // Hidden tastes. "mainstream" and "snob" depend on things the model sees only in bands (fame, average score);
 // "favourite people" depends only on who made or stars in a title: 50 scattered names, so it is not counted as
 // "one clear taste", and the best-known deck already suits this viewer about half the time.
+// Viewers with several unrelated tastes at once. A deck that runs off after the first thing they like never finds the rest.
+const corners = (name, facets) => ({ name, facets, floor: 1.5, likes: (c) => (facets.some((f) => f(c)) ? 3 : 0) });
 const USERS = [
   { name: "Nolan + sci-fi", focused: true, likes: (c) => (by(c, "Christopher Nolan") ? 3 : 0) + (genresOf(c).includes("Sci-fi") ? 1.5 : 0) },
   { name: "anime only", focused: true, likes: (c) => (kindOf(c) === "anime" ? 3 : 0) },
@@ -53,13 +58,20 @@ const USERS = [
   { name: "crime stories", focused: true, likes: (c) => c.kw.filter((k) => CRIME_KW.has(k)).length * 1.2 + (genresOf(c).includes("Crime") ? 1 : 0) },
   { name: "mainstream", likes: (c, i) => 3 * (1 - i / N) },
   { name: "snob (7.8+ only)", likes: (c) => (c.rating >= 7.8 ? 3 : 0) },
+  corners("comedy shows+crime films+new anime", [(c) => kindOf(c) === "tv" && has(c, "Comedy"), (c) => kindOf(c) === "movie" && has(c, "Crime"), (c) => kindOf(c) === "anime" && c.year >= 2015]),
+  corners("old films+new anime", [(c) => kindOf(c) === "movie" && c.year < 2000, (c) => kindOf(c) === "anime" && c.year >= 2018]),
+  corners("horror+romance+family", [(c) => has(c, "Horror"), (c) => has(c, "Romance"), (c) => has(c, "Family") && kindOf(c) !== "anime"]),
+  // Two that a review found the first tuning had ignored: tastes that cut across kind and decade, and a taste with no famous titles.
+  corners("2000s action films+romance", [(c) => kindOf(c) === "movie" && decadeOf(c.year) === "2000s" && has(c, "Action"), (c) => has(c, "Romance")]),
+  { name: "2020s films (few are famous)", likes: (c) => (kindOf(c) === "movie" && decadeOf(c.year) === "2020s" ? 3 : 0) },
   { name: "favourite people", likes: (c) => ((c.by?.names ?? []).some((p) => MAKERS.has(p)) ? 3 : 0) + (c.cast.some((p) => ACTORS.has(p)) ? 2 : 0) },
 ];
 
 function answers(user, seed) {
   const taste = CARDS.map((c, i) => user.likes(c, i) + 0.6 * hash(`${c.id}/${seed}/noise`));
   const sorted = [...taste].sort((a, b) => b - a);
-  const bar = sorted[Math.floor(N * 0.25)]; // the top quarter of the catalogue is "for them"
+  // The top quarter of the catalogue is "for them" (for a viewer with several tastes: only titles in one of those tastes).
+  const bar = Math.max(sorted[Math.floor(N * 0.25)], user.floor ?? -Infinity);
   const loved = sorted[Math.floor(N * 0.03)];
   const mean = taste.reduce((s, v) => s + v, 0) / N;
   const margin = 0.15 * Math.sqrt(taste.reduce((s, v) => s + (v - mean) ** 2, 0) / N);
@@ -132,11 +144,26 @@ function run(user, seed, learning) {
     maxKindRun = Math.max(maxKindRun, kindRun);
   });
   times.sort((a, b) => a - b);
+  // The start: how broad it is, and whether it sticks to titles people know.
+  const first = cards.slice(0, START);
+  const most = (pick) => {
+    const seen = new Map();
+    for (const c of first) for (const k of [pick(c)].flat()) seen.set(k, (seen.get(k) ?? 0) + 1);
+    return Math.max(...seen.values());
+  };
+  const ranks = first.map((c) => RANK.get(c.id)).sort((a, b) => a - b);
+  // For a viewer with several tastes: how many of them the settled deck (swipes 31-60) serves with at least 3 hits.
+  const found = user.facets?.filter((f) => cards.filter((c, k) => k >= 30 && isHit(got[k]) && f(c)).length >= 3).length;
   return {
-    early: rate(got, 0, 10),
-    mid: rate(got, 10, 20),
-    late: rate(got, 20, SWIPES),
-    kinds: new Set(cards.slice(0, 20).map(kindOf)).size,
+    early: rate(got, 0, START),
+    mid: rate(got, START, 30),
+    late: rate(got, 30, SWIPES),
+    kinds: new Set(first.map(kindOf)).size,
+    decades: new Set(first.map((c) => decadeOf(c.year))).size,
+    topKind: most(kindOf),
+    topGenre: most(genresOf),
+    fame: ranks[Math.floor(START / 2)],
+    found: user.facets ? found / user.facets.length : null,
     maxKindRun,
     lines,
     broken,
@@ -157,6 +184,11 @@ function average(user, u, learning) {
     mid: mean((r) => r.mid),
     late: mean((r) => r.late),
     kinds: Math.min(...runs.map((r) => r.kinds)),
+    decades: Math.min(...runs.map((r) => r.decades)),
+    topKind: Math.max(...runs.map((r) => r.topKind)),
+    topGenre: Math.max(...runs.map((r) => r.topGenre)),
+    fame: Math.max(...runs.map((r) => r.fame)),
+    found: runs[0].found === null ? null : mean((r) => r.found),
     maxKindRun: Math.max(...runs.map((r) => r.maxKindRun)),
     lines: Object.fromEntries(Object.keys(runs[0].lines).map((key) => [key, total((r) => r.lines[key])])),
     broken: total((r) => r.broken),
@@ -171,12 +203,14 @@ const lateAverage = () => USERS.reduce((sum, user, u) => sum + average(user, u, 
 
 console.log(`${N} titles, ${SWIPES} swipes each, ${SEEDS} runs per viewer. "Hit" = the viewer liked it or wants to watch it.`);
 console.log(`Settings: ${JSON.stringify(TUNING)}\n`);
-console.log("viewer                 best-known deck    learning deck (swipes 1-10, 11-20, 21-60)   lift");
+console.log("                                    best-known   learning deck, swipes               first 15 cards               tastes found");
+console.log("viewer                              31-60        1-15  16-30  31-60    lift       kinds decades most-of-a-kind   (31-60)");
 const results = USERS.map((user, u) => {
   const base = average(user, u, false);
   const learn = average(user, u, true);
   const lift = learn.late / Math.max(base.late, 0.01);
-  console.log(`${user.name.padEnd(22)} ${pct(base.late)} (21-60)       ${pct(learn.early)} ${pct(learn.mid)} ${pct(learn.late)}                          x${lift.toFixed(2)}`);
+  const found = learn.found === null ? "" : `${pct(learn.found).trim()} (best-known deck ${pct(base.found).trim()})`;
+  console.log(`${user.name.padEnd(35)} ${pct(base.late)}         ${pct(learn.early)}  ${pct(learn.mid)}   ${pct(learn.late)}    x${lift.toFixed(2).padEnd(8)} ${learn.kinds}     ${learn.decades}       ${String(learn.topKind).padEnd(16)} ${found}`);
   return { user, base, learn, lift };
 });
 const repeatable = run(USERS[0], "0.0", true).order === run(USERS[0], "0.0", true).order;
@@ -184,14 +218,20 @@ const repeatable = run(USERS[0], "0.0", true).order === run(USERS[0], "0.0", tru
 const mean = (pick) => results.reduce((s, r) => s + pick(r), 0) / results.length;
 const sum = (pick) => results.reduce((s, r) => s + pick(r), 0);
 const checks = [
-  ["Average hit rate on swipes 21-60 is at least 1.3x the best-known deck", mean((r) => r.learn.late) >= 1.3 * mean((r) => r.base.late), `${pct(mean((r) => r.learn.late)).trim()} vs ${pct(mean((r) => r.base.late)).trim()}`],
+  // The broad start costs hits early on; this keeps that cost in view.
+  ["Average hit rate on swipes 16-30 is at least 1.5x the best-known deck", mean((r) => r.learn.mid) >= 1.5 * mean((r) => r.base.mid), `${pct(mean((r) => r.learn.mid)).trim()} vs ${pct(mean((r) => r.base.mid)).trim()}`],
+  ["Average hit rate on swipes 31-60 is at least 1.3x the best-known deck", mean((r) => r.learn.late) >= 1.3 * mean((r) => r.base.late), `${pct(mean((r) => r.learn.late)).trim()} vs ${pct(mean((r) => r.base.late)).trim()}`],
   // For the "mainstream" viewer the best-known deck is perfect by construction (their taste IS the fame order),
   // so learning can only cost them a little there: the bar is 0.8x for them and 0.95x for everyone else.
   ["No viewer is left clearly worse off than the best-known deck", results.every((r) => r.learn.late >= (r.user.name === "mainstream" ? 0.8 : 0.95) * r.base.late), results.filter((r) => r.learn.late < r.base.late).map((r) => `${r.user.name} x${r.lift.toFixed(2)}`).join(", ") || "none worse"],
-  ["Viewers with one clear taste get at least 1.5x the hits by swipes 21-60", results.filter((r) => r.user.focused).every((r) => r.lift >= 1.5), results.filter((r) => r.user.focused).map((r) => `x${r.lift.toFixed(1)}`).join(" ")],
+  ["Viewers with one clear taste get at least 1.5x the hits by swipes 31-60", results.filter((r) => r.user.focused).every((r) => r.lift >= 1.5), results.filter((r) => r.user.focused).map((r) => `x${r.lift.toFixed(1)}`).join(" ")],
   ["Variety rules hold across the cards shown (director, franchise)", sum((r) => r.learn.broken) === 0, `${sum((r) => r.learn.broken)} breaks`],
   ["No title is cited as the reason more than twice in 6 cards", sum((r) => r.learn.sameReason) === 0, `${sum((r) => r.learn.sameReason)} times`],
-  ["First 20 cards include at least two of movies, shows and anime", results.every((r) => r.learn.kinds >= 2), results.map((r) => r.learn.kinds).join(" ")],
+  // A broad start, whatever the first few ratings were. Counted on the worst run of every viewer.
+  [`First ${START} cards always include movies, shows and anime, and at least 4 of the 5 decades`, results.every((r) => r.learn.kinds === 3 && r.learn.decades >= 4), `fewest kinds ${Math.min(...results.map((r) => r.learn.kinds))}, fewest decades ${Math.min(...results.map((r) => r.learn.decades))}`],
+  [`First ${START} cards never lean one way: at most 8 of one kind, at most 10 sharing a genre`, results.every((r) => r.learn.topKind <= 8 && r.learn.topGenre <= 10), `most of one kind ${Math.max(...results.map((r) => r.learn.topKind))}, most sharing a genre ${Math.max(...results.map((r) => r.learn.topGenre))}`],
+  [`First ${START} cards are titles people know (the middle one is in the best-known 150)`, results.every((r) => r.learn.fame < 150), `worst ${Math.max(...results.map((r) => r.learn.fame)) + 1}`],
+  ["Viewers with several tastes: the settled deck serves at least 90% of those tastes", results.filter((r) => r.user.facets).every((r) => r.learn.found >= 0.9), results.filter((r) => r.user.facets).map((r) => pct(r.learn.found).trim()).join(" ")],
   ["Same ratings always give the same deck", repeatable, ""],
   ["Every reason is true (points at a liked or wanted title; named people are really shared)", sum((r) => r.learn.dishonest) === 0, `${sum((r) => r.learn.dishonest)} bad`],
   ["Re-ranking takes under 5 ms (median, this computer)", results.every((r) => r.learn.ms < 5), `${Math.max(...results.map((r) => r.learn.ms)).toFixed(2)} ms worst`],
@@ -201,7 +241,7 @@ for (const [name, ok, detail] of checks) console.log(`${ok ? "PASS" : "FAIL"}  $
 
 // What each part of the model is worth: switch it off and see how far the average falls.
 if (!process.env.QUICK) {
-  console.log(`\nWhat each part adds (average hits on swipes 21-60, everything on = ${pct(mean((r) => r.learn.late)).trim()}):`);
+  console.log(`\nWhat each part adds (average hits on swipes 31-60, everything on = ${pct(mean((r) => r.learn.late)).trim()}):`);
   for (const [part, label, off] of [
     ["match", "specific taste (people, themes)", 0],
     ["links", "fans-also-like links", 0],

@@ -213,8 +213,8 @@ export function You({ swipes, onImport, onReset }) {
           </>
         )}
         <p className="quiet">
-          Rated {swipes.length} of {CARDS.length}. The deck reorders itself after every rating; from about 8 ratings on, your taste counts for more than
-          popularity.
+          Rated {swipes.length} of {CARDS.length}. The deck starts with a broad mix to learn your taste, then narrows step by step as you rate more, and
+          keeps mixing in things you have not tried.
         </p>
       </div>
 

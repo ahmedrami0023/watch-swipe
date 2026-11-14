@@ -8,7 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "catalog": "node --env-file=.env scripts/build-catalog.mjs",
-    "sim": "node scripts/sim-learn.mjs"
+    "sim": "node scripts/sim-learn.mjs && node scripts/robust-learn.mjs"
   },
   "dependencies": {
     "@phosphor-icons/react": "^2.1.10",

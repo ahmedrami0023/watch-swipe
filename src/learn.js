@@ -2,17 +2,25 @@
 // Pure functions over the catalogue, no dependencies, nothing random: the same ratings always give the same deck.
 //
 // How it scores a title (the numbers in TUNING are starting points checked with scripts/sim-learn.mjs, not laws):
-//   score = fame x 0.35 + a x ( match x 0.5 + links x 0.5 + habits x 4 )
-//   match  = how you rated other titles sharing its people and themes        (specific taste)
-//   links  = "fans of titles you rated also like this", from TMDB            (other people's taste)
-//   habits = how you tend to rate its kind, decade, genres, fame and score   (broad taste)
-// a grows from 0 toward 1 as you rate more (a = n / (n + 8)), so early decks lean on well-known titles.
+//   score = ( 0.35 + unknown x (0.8 + a x 0.5) ) x fame + a x ( match x 0.5 + links x 0.5 + habits x 4 )
+//   fame    = 1 for the best-known title, down to 0 for the least known
+//   unknown = how little you have rated of its kind, decade, genres and their mixes (1 / sqrt(ratings + 1) each;
+//             ground with under 25 titles, like the three documentaries, does not count).
+//             So the deck looks around first: well-known titles from ground you haven't rated yet come up early.
+//             It shrinks as you rate that ground but never reaches 0, so the deck keeps checking other corners.
+//   match   = how you rated other titles sharing its people and themes        (specific taste)
+//   links   = "fans of titles you rated also like this", from TMDB            (other people's taste)
+//   habits  = how you tend to rate its kind, decade, genres, those mixed (e.g. "anime from the 2020s"), fame and score.
+//             A habit you like pulls less right after a run of it (and so do the fans-also-like links),
+//             so one taste doesn't crowd out your others.
+// a grows slowly from 0 toward 1 as you rate more (a = n² / (n² + 20²): 0.02 after 3 ratings, 0.36 after 15, 0.69 after 30),
+// so the first ratings can't send the deck off in one direction: it gets a broad idea of your taste, then narrows step by step.
 // In the simulation the broad habits do most of the work; people and themes mainly help when your taste follows
 // particular directors or actors, and they are what the "Also by ..." reasons come from.
 import { CARDS } from "./cards.js";
 
 // Exported so the simulation can switch parts off and show what each one is worth. The app never changes them.
-export const TUNING = { fame: 0.35, ramp: 8, match: 0.5, links: 0.5, habits: 4, probeEvery: 6 };
+export const TUNING = { fame: 0.35, ramp: 20, match: 0.5, links: 0.5, habits: 4, probeEvery: 6, curious: 0.8, hope: 0.5, tire: 0.25 };
 
 const N = CARDS.length;
 const WEIGHT = { liked: 1, want: 0.8, disliked: -0.8, pass: -0.4, unsure: 0 }; // unsure teaches nothing
@@ -55,7 +63,8 @@ const FID = Int32Array.from(fids);
 const BLK = Uint8Array.from(blocks);
 const RARE = Float32Array.from(rarity);
 
-// Broad habits: five groups per title. Fame and score are in bands so "likes the hits" or "only the acclaimed" can be learned.
+// Broad habits: seven groups per title. Fame and score are in bands so "likes the hits" or "only the acclaimed" can be learned.
+// Kind mixed with decade and with genre lets "new anime and old films" be learned, which kind and decade alone can't say.
 const band = (value, cuts) => cuts.findIndex((cut) => value < cut);
 const habitId = new Map();
 const habitName = [];
@@ -64,12 +73,21 @@ const HABIT = CARDS.map((c, i) => [
   [habit(`kind:${kindOf(c)}`)],
   [habit(`decade:${decadeOf(c.year)}`)],
   halves(c).map((g) => habit(`genre:${g}`)),
+  [habit(`kd:${kindOf(c)} ${decadeOf(c.year)}`)],
+  halves(c).map((g) => habit(`kg:${kindOf(c)} ${g}`)),
   [habit(`fame:${band(i / N, [0.1, 0.25, 0.5, 0.75, 2])}`)],
   [habit(`score:${band(-(c.rating ?? 0), [-8, -7.5, -7, -6.5, 1])}`)],
 ]);
 const H = habitName.length;
+// Ground too small to be worth looking around in (under 25 titles, e.g. the three documentaries) gives no curiosity lift.
+const ROOM = new Float32Array(H);
+for (const groups of HABIT) for (const group of groups) for (const h of group) ROOM[h]++;
+ROOM.forEach((size, h) => (ROOM[h] = size >= 25 ? 1 : 0));
+const PREFIXES = ["kind:", "decade:", "genre:", "kd:", "kg:", "fame:", "score:"];
+// The groups that count as "ground to look around in". Not the fame and score bands: looking around must not mean obscure titles.
+const GROUND = PREFIXES.map((prefix) => !["fame:", "score:"].includes(prefix));
 // The habits of each group, e.g. every kind, every decade. Used to see which groups actually divide your ratings.
-const GROUPS = ["kind:", "decade:", "genre:", "fame:", "score:"].map((prefix) => habitName.map((name, h) => (name.startsWith(prefix) ? h : -1)).filter((h) => h >= 0));
+const GROUPS = PREFIXES.map((prefix) => habitName.map((name, h) => (name.startsWith(prefix) ? h : -1)).filter((h) => h >= 0));
 
 const INDEX = new Map(CARDS.map((c, i) => [c.id, i]));
 const KIND = CARDS.map(kindOf);
@@ -124,7 +142,14 @@ export function rank(swipes, pool, pinned = [], fromOf = () => null) {
         habitCount[h]++;
       }
   }
-  const a = n / (n + TUNING.ramp);
+  // What you were just shown (the last 10 you rated, plus the cards on screen), counted per habit.
+  const recent = new Float32Array(H);
+  const shown = new Set();
+  for (const id of [...swipes.slice(-10).map((s) => s.id), ...pinned]) {
+    shown.add(INDEX.get(id));
+    for (const group of HABIT[INDEX.get(id)] ?? []) for (const h of group) recent[h]++;
+  }
+  const a = n * n / (n * n + TUNING.ramp * TUNING.ramp);
   const usual = n ? total / n : 0; // how you tend to rate anything at all
   // How much better or worse than your usual you rate titles with this habit. Few ratings behind it = pulled toward "no difference".
   const edge = (h) => (habitSum[h] - habitCount[h] * usual) / (habitCount[h] + SHRINK);
@@ -168,24 +193,42 @@ export function rank(swipes, pool, pinned = [], fromOf = () => null) {
     let match = 0;
     for (let b = 0; b < 3; b++) if (known[b]) match += (BLOCK[b] * blockSum[b]) / known[b];
     let linked = 0;
-    for (const j of NEAR[i]) if (weightOf.has(j)) linked += weightOf.get(j) - base;
-    let habits = 0;
+    let justShown = 0;
+    for (const j of NEAR[i]) {
+      if (weightOf.has(j)) linked += weightOf.get(j) - base;
+      if (shown.has(j)) justShown++;
+    }
+    // What you like pulls less right after a run of it, so your other tastes still get turns. Dislikes don't wear off.
+    const tired = (pull, run) => (pull > 0 ? pull / (1 + run * TUNING.tire) : pull);
+    let habits = 0; // what your habits say about this title
+    let pull = 0; // the same, after tiring: this is what goes into the score
+    let unknown = 0; // how little you have rated of this title's kind, decade, genres and their mixes
     HABIT[i].forEach((group, g) => {
+      if (!group.length) return;
       let sum = 0;
-      for (const h of group) sum += edge(h);
-      if (group.length) habits += (matters[g] * sum) / group.length;
+      let sumTired = 0;
+      let unrated = 0;
+      for (const h of group) {
+        sum += edge(h);
+        sumTired += tired(edge(h), recent[h]);
+        unrated += ROOM[h] / Math.sqrt(habitCount[h] + 1);
+      }
+      habits += (matters[g] * sum) / group.length;
+      pull += (matters[g] * sumTired) / group.length;
+      if (GROUND[g]) unknown += unrated / group.length;
     });
-    habits = Math.max(-1, Math.min(1, habits / mattersTotal));
-    const specific = a * (TUNING.match * match + TUNING.links * (Math.max(-3, Math.min(3, linked)) / 3));
-    const broad = a * TUNING.habits * habits;
-    rows.push({ i, specific, broad, score: TUNING.fame * (1 - i / N) + specific + broad });
+    const clamp = (value) => Math.max(-1, Math.min(1, value / mattersTotal));
+    // Looking around: well-known titles from ground you haven't rated get a lift. The lift grows a little as your taste
+    // takes over (a), so it is never fully drowned out, and it is always scaled by fame, so it never digs up obscure titles.
+    const explore = (TUNING.fame + (TUNING.curious + a * TUNING.hope) * unknown) * (1 - i / N);
+    const specific = a * (TUNING.match * match + TUNING.links * (tired(Math.max(-3, Math.min(3, linked)), justShown) / 3));
+    const broad = a * TUNING.habits * clamp(habits); // used for the reason line and for "is this a personal pick"
+    rows.push({ i, specific, broad, explore, score: explore + specific + a * TUNING.habits * clamp(pull) });
   }
   rows.sort((x, y) => y.score - x.score || x.i - y.i);
 
   // What best explains this pick, using exactly the terms that scored it. Null when nothing personal drove it.
   const explain = (row) => {
-    if (row.reason !== undefined) return row.reason;
-    row.reason = null;
     if (n < 3 || row.specific + row.broad < 0.12) return null;
     const i = row.i;
 
@@ -222,11 +265,13 @@ export function rank(swipes, pool, pinned = [], fromOf = () => null) {
     for (let k = START[i]; k < START[i + 1]; k++) scratch[FID[k]] = 0;
 
     // The broad habit that stands out: a kind, decade or genre you rate clearly better than your usual, with 5+ ratings behind it.
+    // Naming it again straight after a card of the same habit says nothing new, so then it is left out.
+    const last = HABIT[before.at(-1)?.i]?.flat() ?? [];
     let clear = 0.25;
     let key = null;
     for (const group of HABIT[i].slice(0, 3))
       for (const h of group)
-        if (habitCount[h] >= 5 && habitSum[h] > 0 && edge(h) > clear) {
+        if (habitCount[h] >= 5 && habitSum[h] > 0 && edge(h) > clear && !last.includes(h)) {
           clear = edge(h);
           key = habitName[h];
         }
@@ -245,9 +290,9 @@ export function rank(swipes, pool, pinned = [], fromOf = () => null) {
     };
     const habitLine = () => ({ why: `${habitWords(key)}, which you tend to like`, from: -1 });
     const strongTitle = source >= 0 && best >= 0.04; // a title has to have really mattered to be named
-    if (key && row.broad > row.specific) return (row.reason = habitLine());
-    if (strongTitle) return (row.reason = titleLine());
-    return (row.reason = key ? habitLine() : null);
+    if (key && row.broad > row.specific) return habitLine();
+    if (strongTitle) return titleLine();
+    return key ? habitLine() : null;
   };
 
   // Variety rules, checked against the cards just before this one: the last ones you rated, then the ones on screen.
@@ -277,14 +322,14 @@ export function rank(swipes, pool, pinned = [], fromOf = () => null) {
   };
   for (let slot = 0; slot < SHAPED && used.size < rows.length; slot++) {
     // Counted over every card you have been shown, not per re-ranking, so the turn really comes round.
-    if (n >= 3 && (shownSoFar + slot) % TUNING.probeEvery === TUNING.probeEvery - 1) {
-      // The best-known title your ratings say little about: not already a personal pick, not already ruled out.
+    if (a >= 0.2 && (shownSoFar + slot) % TUNING.probeEvery === TUNING.probeEvery - 1) {
+      // A well-known title from the ground you have rated least: not already a personal pick, not already ruled out.
       // Rating it teaches the most, and it keeps the deck from closing in on one corner.
       let probe = null;
       for (const row of rows) {
         const personal = row.specific + row.broad;
         if (used.has(row) || personal >= 0.12 || personal <= -0.1 || !fits(row)) continue;
-        if (!probe || row.i < probe.i) probe = row;
+        if (!probe || row.explore > probe.explore) probe = row;
       }
       if (probe) {
         place(probe, "Something different, to learn your taste");
