@@ -2,7 +2,7 @@
 import { useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Poster } from "./Deck.jsx";
-import { CARDS } from "./cards.js";
+import { BUILT, CARDS } from "./cards.js";
 import { BY_ID, RATINGS, RATING_NAMES, clean } from "./ratings.js";
 
 const LIST_ORDER = ["want", "liked", "disliked", "unsure", "pass"];
@@ -33,9 +33,9 @@ export function Lists({ swipes, onOpen }) {
           {rows.map(({ id }) => {
             const card = BY_ID.get(id);
             return (
-              <motion.li key={id} layout exit={{ opacity: 0, x: -40 }} transition={{ duration: 0.2 }}>
+              <motion.li key={id} layout={rows.length <= 60} exit={{ opacity: 0, x: -40 }} transition={{ duration: 0.2 }}>
                 <button className="row" onClick={() => onOpen(id)}>
-                  <Poster card={card} className="thumb" />
+                  <Poster card={card} size="w154" className="thumb" />
                   <span>
                     <strong>{card.title}</strong>
                     <small>
@@ -197,9 +197,14 @@ export function You({ swipes, onImport, onReset }) {
       <div className="panel">
         <h2>Credits</h2>
         <p className="quiet">
-          Posters and details in this sample deck come from <a href="https://www.tvmaze.com" target="_blank" rel="noreferrer">TVmaze</a>,{" "}
-          <a href="https://anilist.co" target="_blank" rel="noreferrer">AniList</a> and{" "}
-          <a href="https://en.wikipedia.org" target="_blank" rel="noreferrer">Wikipedia</a>. Each title's details page links to its source.
+          This product uses the <a href="https://www.themoviedb.org" target="_blank" rel="noreferrer">TMDB</a> API but is not endorsed or certified by TMDB. Posters, details and scores
+          come from TMDB.
+        </p>
+        <p className="quiet">
+          Streaming availability comes from <a href="https://www.justwatch.com" target="_blank" rel="noreferrer">JustWatch</a>.
+        </p>
+        <p className="quiet">
+          {CARDS.length} titles, updated {BUILT}.
         </p>
       </div>
 

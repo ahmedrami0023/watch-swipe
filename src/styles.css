@@ -696,10 +696,25 @@ button:disabled,
   background: transparent;
   color: var(--text);
   overflow: hidden;
+  overflow: clip; /* nothing may scroll this layer, not even the browser moving focus into the sheet */
 }
-.sheet-dialog::backdrop,
+.sheet-dialog::backdrop {
+  background: transparent; /* .dimmer does this job, in step with the sheet */
+}
 .confirm::backdrop {
   background: rgb(0 0 0 / 0.6);
+}
+.dimmer,
+.sheet-slide {
+  position: absolute;
+  inset: 0;
+}
+.dimmer {
+  background: rgb(0 0 0 / 0.6);
+}
+.sheet-slide {
+  pointer-events: none; /* only the sheet itself takes touches; the dimmer above it closes */
+  will-change: transform;
 }
 .sheet {
   position: absolute;
@@ -714,6 +729,17 @@ button:disabled,
   border-radius: var(--r) var(--r) 0 0;
   background: var(--surface);
   box-shadow: 0 -20px 60px rgb(0 0 0 / 0.5);
+  pointer-events: auto;
+}
+/* Covers the gap under the sheet if it is ever nudged upward. */
+.sheet::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 100%;
+  height: 40vh;
+  background: var(--surface);
 }
 .sheet-head {
   position: relative;
@@ -783,16 +809,22 @@ button:disabled,
   padding: 12px 20px calc(var(--safe-b) + 14px);
   border-top: 1px solid var(--line);
 }
+/* The full poster at its own 2:3 shape, so nothing is cropped. */
 .hero {
   position: relative;
-  aspect-ratio: 16 / 10;
+  align-self: center;
+  width: min(80%, 330px);
+  aspect-ratio: 2 / 3;
   border-radius: var(--r);
   overflow: hidden;
   background: var(--surface-2);
-  margin-bottom: 6px;
+  box-shadow: 0 18px 40px rgb(0 0 0 / 0.5);
+  margin: 4px 0 12px;
 }
-.hero .art {
-  object-position: center 22%;
+.services {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 .kind {
   font-weight: 600;

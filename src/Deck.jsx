@@ -10,22 +10,23 @@ import {
   useTransform,
 } from "motion/react";
 import { ArrowCounterClockwise, SlidersHorizontal } from "@phosphor-icons/react";
-import { BY_SWIPE, DOUBLE_TAP, FLICK, RATINGS, RATING_NAMES, THRESHOLD, progress, rawTint, sample } from "./ratings.js";
+import { BY_SWIPE, DOUBLE_TAP, FLICK, RATINGS, RATING_NAMES, THRESHOLD, imageUrl, progress, rawTint, sample } from "./ratings.js";
 
 // Poster image. crossOrigin lets us read its colour; a broken link falls back to a tinted block.
-export function Poster({ card, className, alt = "", onTint }) {
+export function Poster({ card, path = card.poster, size = "w780", className, alt = "", onTint }) {
   const [failed, setFailed] = useState(false);
-  if (!card.image || failed) return <div className={`${className} blank`} role={alt ? "img" : undefined} aria-label={alt || undefined} />;
+  if (!path || failed) return <div className={`${className} blank`} role={alt ? "img" : undefined} aria-label={alt || undefined} />;
   return (
     <img
       className={className}
-      src={card.image}
+      src={imageUrl(path, size)}
       alt={alt}
       crossOrigin="anonymous"
       draggable="false"
       decoding="async"
+      loading={size === "w154" ? "lazy" : undefined}
       onLoad={
-        onTint && !card.color
+        onTint
           ? (e) => {
               const colour = sample(e.currentTarget);
               if (colour) onTint(card.id, colour);
@@ -51,9 +52,9 @@ function CardFace({ card, onTint, onDetails, children }) {
           {card.genres.length > 0 && <span>{card.genres.slice(0, 2).join(", ")}</span>}
         </p>
         <div className="pills">
-          {card.score && (
+          {card.rating != null && (
             <span className="pill solid stat">
-              {card.score.label} <b>{card.score.value}</b>
+              TMDB <b>{card.rating.toFixed(1)}</b>
             </span>
           )}
           {onDetails && (
@@ -279,10 +280,10 @@ export default function Deck({ deck, total, leaving, back, tints, reduce, filter
 
   // Warm up the picture two cards down so it is ready when it surfaces.
   useEffect(() => {
-    if (!third?.image) return;
+    if (!third?.poster) return;
     const img = new Image();
     img.crossOrigin = "anonymous";
-    img.src = third.image;
+    img.src = imageUrl(third.poster, "w780");
   }, [third]);
 
   return (

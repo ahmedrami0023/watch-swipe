@@ -2,9 +2,10 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { motion, useDragControls } from "motion/react";
 import { Poster } from "./Deck.jsx";
-import { DECADES, GENRES, KINDS, NO_FILTERS, RATINGS, RATING_NAMES, filterCount, matches } from "./ratings.js";
+import { DECADES, GENRES, KINDS, NO_FILTERS, RATINGS, RATING_NAMES, SCORES, SERVICES, filterCount, matches, tmdbPage } from "./ratings.js";
 
 // Slides up, drags down from its header to dismiss, and plays its exit before the dialog really closes.
+// The slide and the drag live on separate elements: on one element the drag limits fought the slide-in and made it jump.
 function Sheet({ title, onClose, children, footer }) {
   const dialog = useRef(null);
   const controls = useDragControls();
@@ -43,14 +44,18 @@ function Sheet({ title, onClose, children, footer }) {
         e.preventDefault(); // Escape: play the exit first
         close();
       }}
-      onClick={(e) => e.target === dialog.current && close()} // tap above the sheet
     >
+      {/* Our own dimmer, so it fades in and out in step with the sheet (the built-in backdrop can only pop). */}
+      <motion.div className="dimmer" initial={{ opacity: 0 }} animate={{ opacity: open ? 1 : 0 }} transition={{ duration: 0.25 }} onClick={() => close()} />
+      <motion.div
+        className="sheet-slide"
+        initial={{ y: window.innerHeight }}
+        animate={{ y: open ? 0 : window.innerHeight }}
+        transition={{ type: "spring", bounce: 0, visualDuration: open ? 0.38 : 0.26 }}
+        onAnimationComplete={() => !open && finish()}
+      >
       <motion.div
         className="sheet"
-        initial={{ y: "100%" }}
-        animate={{ y: open ? 0 : "100%" }}
-        transition={{ type: "spring", bounce: open ? 0.15 : 0, visualDuration: open ? 0.35 : 0.25 }}
-        onAnimationComplete={() => !open && finish()}
         drag="y"
         dragControls={controls}
         dragListener={false}
@@ -68,6 +73,7 @@ function Sheet({ title, onClose, children, footer }) {
         <div className="sheet-body">{typeof children === "function" ? children(close) : children}</div>
         {footer && <footer className="sheet-foot">{footer(close)}</footer>}
       </motion.div>
+      </motion.div>
     </dialog>
   );
 }
@@ -77,6 +83,7 @@ export function Details({ card, rating, onPick, onRemove, onClose }) {
     <Sheet title={card.title} onClose={onClose}>
       {(close) => (
         <>
+          {/* The whole poster, uncropped. Same file the card already loaded, so it is on screen at once. */}
           <div className="hero">
             <Poster card={card} className="art" alt={`Poster for ${card.title}`} />
           </div>
@@ -84,11 +91,16 @@ export function Details({ card, rating, onPick, onRemove, onClose }) {
             {card.type} · {card.year}
           </p>
           {card.genres.length > 0 && <p className="quiet">{card.genres.join(", ")}</p>}
-          {card.facts && <p className="quiet">{card.facts.join(", ")}</p>}
-          {card.score && (
+          {card.facts.length > 0 && <p className="quiet">{card.facts.join(", ")}</p>}
+          {card.by && (
+            <p className="quiet">
+              {card.by.label} {card.by.names.join(", ")}
+            </p>
+          )}
+          {card.rating != null && (
             <p className="scores">
               <span className="pill solid stat">
-                {card.score.label} <b>{card.score.value}</b>
+                TMDB <b>{card.rating.toFixed(1)}</b>
               </span>
             </p>
           )}
@@ -127,21 +139,40 @@ export function Details({ card, rating, onPick, onRemove, onClose }) {
               <p className="summary">{card.summary}</p>
             </>
           )}
-          {card.cast && (
+          {card.cast.length > 0 && (
             <>
               <h3>Cast</h3>
               <p className="summary">{card.cast.join(", ")}</p>
             </>
           )}
-          {card.link && (
-            <p className="credit">
-              Details from{" "}
-              <a href={card.link} target="_blank" rel="noreferrer">
-                {card.credit}
-              </a>
-              . Streaming services and more scores come with the full catalogue.
+          <h3>Streaming in the US</h3>
+          {card.providers.length > 0 ? (
+            <p className="services">
+              {card.providers.map((name) => (
+                <span key={name} className="pill solid stat">
+                  {name}
+                </span>
+              ))}
             </p>
+          ) : (
+            <p className="quiet">Not on a subscription service right now.</p>
           )}
+          <p className="credit">
+            Details from{" "}
+            <a href={tmdbPage(card)} target="_blank" rel="noreferrer">
+              TMDB
+            </a>
+            .{" "}
+            {card.watch && (
+              <>
+                Streaming data from{" "}
+                <a href={card.watch} target="_blank" rel="noreferrer">
+                  JustWatch
+                </a>
+                .
+              </>
+            )}
+          </p>
         </>
       )}
     </Sheet>
@@ -197,6 +228,13 @@ export function Filters({ filters, unrated, onApply, onClose }) {
         isOn={(v) => draft.decade === v}
         onToggle={(v) => setDraft((d) => ({ ...d, decade: v }))}
       />
+      <ChipGroup
+        label="TMDB score"
+        options={[[null, "Any"], ...SCORES.map((s) => [s, `${s}+`])]}
+        isOn={(v) => draft.min === v}
+        onToggle={(v) => setDraft((d) => ({ ...d, min: v }))}
+      />
+      <ChipGroup label="Streaming on" options={SERVICES.map((s) => [s, s])} isOn={(v) => draft.services.includes(v)} onToggle={toggle("services")} />
       {!count && <p className="quiet">Nothing fits. Loosen a filter.</p>}
     </Sheet>
   );

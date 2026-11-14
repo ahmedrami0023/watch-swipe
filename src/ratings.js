@@ -1,6 +1,6 @@
 // Shared rules: the five ratings, saved-data cleaning, and deck filters.
 import { Heart, Question, Star, ThumbsDown, X } from "@phosphor-icons/react";
-import { CARDS } from "./cards.js";
+import { CARDS, LEGACY_IDS } from "./cards.js";
 
 export const STORE = "watch-swipe:v2"; // saves the rating, not the gesture
 export const FILTER_STORE = "watch-swipe:filters";
@@ -31,13 +31,19 @@ export function progress(dir, dx, dy) {
 }
 
 // Saved or imported swipes are untrusted input: keep only known cards and ratings, one entry per card.
+// Ids from the old 20-title sample deck are translated to the same titles in the real catalogue.
 export function clean(raw) {
   if (!Array.isArray(raw)) return [];
   const known = new Set(BY_ID.keys());
   return raw
-    .filter((s) => s && typeof s === "object" && Object.hasOwn(RATINGS, s.rating) && known.delete(s.id))
-    .map((s) => ({ id: s.id, rating: s.rating, at: Number.isFinite(s.at) ? s.at : 0 }));
+    .filter((s) => s && typeof s === "object" && Object.hasOwn(RATINGS, s.rating))
+    .map((s) => ({ id: (Object.hasOwn(LEGACY_IDS, s.id) && LEGACY_IDS[s.id]) || s.id, rating: s.rating, at: Number.isFinite(s.at) ? s.at : 0 }))
+    .filter((s) => known.delete(s.id));
 }
+
+// TMDB image address at a given width ("w154" thumbnails, "w780" full posters).
+export const imageUrl = (path, size) => (path ? `https://image.tmdb.org/t/p/${size}${path}` : null);
+export const tmdbPage = (card) => `https://www.themoviedb.org/${card.id.startsWith("t-") ? "tv" : "movie"}/${card.id.slice(2)}`;
 export function load() {
   try {
     return clean(JSON.parse(localStorage.getItem(STORE) ?? "[]"));
@@ -49,16 +55,24 @@ export function load() {
 // ---- deck filters ----
 export const KINDS = { movie: "Movies", tv: "TV", anime: "Anime" };
 export const DECADES = ["2020s", "2010s", "2000s", "1990s", "Older"];
-export const GENRES = [...new Set(CARDS.flatMap((c) => c.genres))].sort();
-export const NO_FILTERS = { kinds: [], genres: [], decade: null };
+// TV genres can be pairs ("Action & Adventure"); each half is its own filter choice.
+export const GENRES = [...new Set(CARDS.flatMap((c) => c.genres.flatMap((g) => g.split(" & "))))].sort();
+export const SCORES = [6, 7, 8]; // "at least" choices for the TMDB score
+// The streaming services that carry the most titles in this catalogue.
+const serviceCount = {};
+for (const c of CARDS) for (const p of c.providers) serviceCount[p] = (serviceCount[p] || 0) + 1;
+export const SERVICES = Object.entries(serviceCount).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([name]) => name);
+export const NO_FILTERS = { kinds: [], genres: [], decade: null, min: null, services: [] };
 
 export const kindOf = (card) => (card.type.startsWith("Anime") ? "anime" : card.type === "Movie" ? "movie" : "tv");
 export const decadeOf = (year) => (year >= 2020 ? "2020s" : year >= 2010 ? "2010s" : year >= 2000 ? "2000s" : year >= 1990 ? "1990s" : "Older");
 export const matches = (card, f) =>
   (!f.kinds.length || f.kinds.includes(kindOf(card))) &&
-  (!f.genres.length || card.genres.some((g) => f.genres.includes(g))) &&
-  (!f.decade || decadeOf(card.year) === f.decade);
-export const filterCount = (f) => f.kinds.length + f.genres.length + (f.decade ? 1 : 0);
+  (!f.genres.length || card.genres.some((g) => g.split(" & ").some((half) => f.genres.includes(half)))) &&
+  (!f.decade || decadeOf(card.year) === f.decade) &&
+  (!f.min || (card.rating ?? 0) >= f.min) &&
+  (!f.services.length || card.providers.some((p) => f.services.includes(p)));
+export const filterCount = (f) => f.kinds.length + f.genres.length + f.services.length + (f.decade ? 1 : 0) + (f.min ? 1 : 0);
 
 export function loadFilters() {
   try {
@@ -69,6 +83,8 @@ export function loadFilters() {
       kinds: list(f.kinds).filter((k) => Object.hasOwn(KINDS, k)),
       genres: list(f.genres).filter((g) => GENRES.includes(g)),
       decade: DECADES.includes(f.decade) ? f.decade : null,
+      min: SCORES.includes(f.min) ? f.min : null,
+      services: list(f.services).filter((s) => SERVICES.includes(s)),
     };
   } catch {
     return NO_FILTERS;
@@ -77,7 +93,7 @@ export function loadFilters() {
 
 // ---- colour ----
 // The card's own colour before clamping (styles.css turns --raw into a safe --tint).
-export const rawTint = (card, sampled) => sampled ?? card.color ?? `oklch(0.62 0.12 ${card.hue})`;
+export const rawTint = (card, sampled) => sampled ?? `oklch(0.62 0.12 ${card.hue})`;
 
 // Average colour of a loaded poster, leaning toward its saturated pixels. Null if the canvas is blocked.
 export function sample(img) {
