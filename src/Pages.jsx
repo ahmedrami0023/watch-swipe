@@ -68,7 +68,7 @@ export function You({ swipes, onImport, onReset }) {
 
   // Genres from titles you liked or want, most common first.
   const tally = {};
-  for (const s of swipes) if (s.rating === "liked" || s.rating === "want") for (const g of BY_ID.get(s.id).genres) tally[g] = (tally[g] || 0) + 1;
+  for (const s of swipes) if (s.rating === "liked" || s.rating === "want") for (const g of BY_ID.get(s.id).genres.flatMap((pair) => pair.split(" & "))) tally[g] = (tally[g] || 0) + 1;
   const topGenres = Object.entries(tally).sort((a, b) => b[1] - a[1]).slice(0, 3);
 
   // On iPhone the share sheet ("Save to Files") is the reliable way out of a home-screen app; elsewhere, a download.

@@ -5,7 +5,7 @@ import { CARDS } from "./cards.js";
 import Deck from "./Deck.jsx";
 import { Lists, You } from "./Pages.jsx";
 import { Details, Filters } from "./Sheets.jsx";
-import { BY_ID, FILTER_STORE, NO_FILTERS, RATINGS, RATING_NAMES, STORE, filterCount, load, loadFilters, matches, rawTint } from "./ratings.js";
+import { BY_ID, FILTER_STORE, NO_FILTERS, RATINGS, RATING_NAMES, STORE, filterCount, load, loadFilters, loadOrphans, matches, rawTint } from "./ratings.js";
 
 const TABS = [
   { id: "swipe", label: "Swipe", Icon: Cards },
@@ -90,6 +90,8 @@ export default function App() {
   const [saveFailed, setSaveFailed] = useState(false);
   const reduce = useReducedMotion();
   const root = useRef(null);
+  const orphans = useRef(null); // ratings for titles not in this catalogue: saved back as they were
+  if (orphans.current === null) orphans.current = loadOrphans();
   const { swipes } = state;
 
   const rated = useMemo(() => new Map(swipes.map((s) => [s.id, s.rating])), [swipes]);
@@ -113,7 +115,7 @@ export default function App() {
 
   useEffect(() => {
     try {
-      localStorage.setItem(STORE, JSON.stringify(swipes));
+      localStorage.setItem(STORE, JSON.stringify([...swipes, ...orphans.current]));
       localStorage.setItem(FILTER_STORE, JSON.stringify(filters));
       setSaveFailed(false);
     } catch {
@@ -191,7 +193,10 @@ export default function App() {
               />
             )}
             {tab === "lists" && <Lists swipes={swipes} onOpen={setDetails} />}
-            {tab === "you" && <You swipes={swipes} onImport={(fresh) => dispatch({ type: "import", swipes: fresh })} onReset={() => dispatch({ type: "reset" })} />}
+            {tab === "you" && <You swipes={swipes} onImport={(fresh) => dispatch({ type: "import", swipes: fresh })} onReset={() => {
+                orphans.current = []; // "erase all" means all
+                dispatch({ type: "reset" });
+              }} />}
           </motion.main>
         </AnimatePresence>
 

@@ -2,6 +2,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { motion, useDragControls } from "motion/react";
 import { Poster } from "./Deck.jsx";
+import { BUILT } from "./cards.js";
 import { DECADES, GENRES, KINDS, NO_FILTERS, RATINGS, RATING_NAMES, SCORES, SERVICES, filterCount, matches, tmdbPage } from "./ratings.js";
 
 // Slides up, drags down from its header to dismiss, and plays its exit before the dialog really closes.
@@ -155,7 +156,7 @@ export function Details({ card, rating, onPick, onRemove, onClose }) {
               ))}
             </p>
           ) : (
-            <p className="quiet">Not on a subscription service right now.</p>
+            <p className="quiet">Not on a subscription service as of {BUILT}.</p>
           )}
           <p className="credit">
             Details from{" "}
@@ -169,7 +170,7 @@ export function Details({ card, rating, onPick, onRemove, onClose }) {
                 <a href={card.watch} target="_blank" rel="noreferrer">
                   JustWatch
                 </a>
-                .
+                , as of {BUILT}.
               </>
             )}
           </p>

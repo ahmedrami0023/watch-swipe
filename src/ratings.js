@@ -51,6 +51,17 @@ export function load() {
     return [];
   }
 }
+// Saved ratings for titles this catalogue doesn't have. They are kept and written back untouched,
+// so a catalogue change can never silently delete a rating.
+export function loadOrphans() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(STORE) ?? "[]");
+    if (!Array.isArray(raw)) return [];
+    return raw.filter((s) => s && typeof s === "object" && typeof s.id === "string" && Object.hasOwn(RATINGS, s.rating) && !BY_ID.has(s.id) && !Object.hasOwn(LEGACY_IDS, s.id));
+  } catch {
+    return [];
+  }
+}
 
 // ---- deck filters ----
 export const KINDS = { movie: "Movies", tv: "TV", anime: "Anime" };
