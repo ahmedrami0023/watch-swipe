@@ -195,13 +195,13 @@ export default function App() {
           </motion.main>
         </AnimatePresence>
 
-        <nav className="tabs glass" aria-label="Sections">
+        <nav className="tabs" aria-label="Sections">
           {TABS.map(({ id, label, Icon }) => (
-            <button key={id} aria-current={tab === id ? "page" : undefined} onClick={() => setTab(id)}>
-              {tab === id && <motion.span layoutId="tab-pill" className="tab-pill" transition={{ type: "spring", bounce: 0.2, visualDuration: 0.3 }} />}
-              <Icon size={24} weight={tab === id ? "fill" : "regular"} aria-hidden="true" />
+            <motion.button key={id} aria-current={tab === id ? "page" : undefined} onClick={() => setTab(id)} whileTap={{ scale: 0.94 }}>
+              {tab === id && <motion.span layoutId="tab-pill" className="tab-pill" transition={{ type: "spring", bounce: 0.25, visualDuration: 0.35 }} />}
+              <Icon size={24} weight="fill" aria-hidden="true" />
               <span>{label}</span>
-            </button>
+            </motion.button>
           ))}
         </nav>
 
