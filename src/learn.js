@@ -323,12 +323,13 @@ export function rank(swipes, pool, pinned = [], fromOf = () => null) {
   for (let slot = 0; slot < SHAPED && used.size < rows.length; slot++) {
     // Counted over every card you have been shown, not per re-ranking, so the turn really comes round.
     if (a >= 0.2 && (shownSoFar + slot) % TUNING.probeEvery === TUNING.probeEvery - 1) {
-      // A well-known title from the ground you have rated least: not already a personal pick, not already ruled out.
+      // A well-known title (from the best-known quarter) from the ground you have rated least: not already a personal pick,
+      // not already ruled out. If there is none, the turn is skipped.
       // Rating it teaches the most, and it keeps the deck from closing in on one corner.
       let probe = null;
       for (const row of rows) {
         const personal = row.specific + row.broad;
-        if (used.has(row) || personal >= 0.12 || personal <= -0.1 || !fits(row)) continue;
+        if (used.has(row) || row.i > N / 4 || personal >= 0.12 || personal <= -0.1 || !fits(row)) continue;
         if (!probe || row.explore > probe.explore) probe = row;
       }
       if (probe) {
