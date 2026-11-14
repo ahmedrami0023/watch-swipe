@@ -144,12 +144,32 @@ button[aria-disabled="true"] {
 
 /* Placeholder poster: a tinted block until real artwork arrives in M2. Always dark, so the title stays light. */
 .poster {
+  position: relative;
   display: flex;
   align-items: flex-end;
+  overflow: hidden;
   padding: 22px;
   background: linear-gradient(165deg, oklch(0.44 0.09 var(--hue)), oklch(0.22 0.05 var(--hue)));
 }
+.poster img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center top;
+  pointer-events: none;
+}
+/* Darkens the bottom of the picture so the title stays readable on any poster. */
+.card .poster:has(img)::after {
+  content: "";
+  position: absolute;
+  inset: 40% 0 0;
+  background: linear-gradient(to bottom, transparent, rgb(0 0 0 / 0.82));
+}
 .poster h2 {
+  position: relative;
+  z-index: 1;
   color: #f6f7f8;
   font-size: clamp(28px, 9vw, 40px);
   font-weight: 700;
@@ -159,9 +179,18 @@ button[aria-disabled="true"] {
 }
 
 .meta {
+  position: relative;
   display: grid;
   gap: 4px;
   padding: 16px 22px 20px;
+}
+.info {
+  position: absolute;
+  top: 14px;
+  right: 16px;
+}
+.peek .info {
+  display: none;
 }
 .kind {
   font-weight: 600;
@@ -280,6 +309,72 @@ button[aria-disabled="true"] {
 }
 .finished .ghost {
   justify-self: start;
+}
+
+/* Details sheet (native dialog). It may scroll; the page behind never does. */
+.details {
+  width: min(100%, 440px);
+  max-width: none;
+  max-height: none;
+  height: 100%;
+  margin: 0 auto;
+  padding: 0;
+  border: 0;
+  background: var(--bg);
+  color: var(--text);
+}
+.details::backdrop {
+  background: rgb(0 0 0 / 0.6);
+}
+.sheet {
+  height: 100%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: calc(env(safe-area-inset-top) + 12px) 20px calc(env(safe-area-inset-bottom) + 28px);
+}
+.sheet > * {
+  flex-shrink: 0;
+}
+.sheet .close {
+  align-self: flex-end;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+.sheet .poster {
+  aspect-ratio: 2 / 3;
+  width: min(64%, 260px);
+  align-self: center;
+  margin: 4px 0 14px;
+  padding: 0;
+  border-radius: var(--r-card);
+}
+.sheet h2 {
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+.sheet .scores {
+  flex-wrap: wrap;
+  gap: 14px 28px;
+  margin: 10px 0 6px;
+}
+.summary {
+  line-height: 1.55;
+  max-width: 65ch;
+}
+.credit {
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.credit a {
+  color: var(--accent);
 }
 
 .warn {

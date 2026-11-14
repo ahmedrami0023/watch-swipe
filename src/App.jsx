@@ -69,6 +69,9 @@ function reducer(state, action) {
 export default function App() {
   const [state, dispatch] = useReducer(reducer, null, () => ({ swipes: load(), exit: null, note: "" }));
   const [saveFailed, setSaveFailed] = useState(false);
+  const [details, setDetails] = useState(null); // the card whose details sheet is open
+  const detailsOpen = useRef(false);
+  detailsOpen.current = !!details;
   const reduce = useReducedMotion();
   const controls = useRef(null);
   const { swipes } = state;
@@ -91,7 +94,7 @@ export default function App() {
 
   useEffect(() => {
     const onKey = (e) => {
-      if (e.repeat || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+      if (detailsOpen.current || e.repeat || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
       const rating = RATING_NAMES.find((r) => RATINGS[r].key === e.key);
       if (!rating) return;
       e.preventDefault();
@@ -116,7 +119,7 @@ export default function App() {
       <main className="stage">
         {peek && <CardFace card={peek} className="card peek" aria-hidden="true" />}
         <AnimatePresence custom={{ rating: state.exit, reduce }} initial={false}>
-          {top && <SwipeCard key={top.id} card={top} onRate={rate} reduce={reduce} />}
+          {top && <SwipeCard key={top.id} card={top} onRate={rate} onDetails={setDetails} reduce={reduce} />}
         </AnimatePresence>
         {!top && <Finished swipes={swipes} onReset={reset} />}
       </main>
@@ -141,6 +144,8 @@ export default function App() {
         ))}
       </nav>
 
+      {details && <Details card={details} onClose={() => setDetails(null)} />}
+
       {saveFailed && (
         <p className="warn" role="alert">
           Swipes are not being saved on this device.
@@ -153,13 +158,19 @@ export default function App() {
   );
 }
 
-function CardFace({ as: Tag = "article", card, children, ...rest }) {
+function CardFace({ as: Tag = "article", card, onDetails, children, ...rest }) {
   return (
     <Tag {...rest}>
       <div className="poster" style={{ "--hue": card.hue }}>
+        {card.image && <img src={card.image} alt="" draggable="false" />}
         <h2>{card.title}</h2>
       </div>
       <div className="meta">
+        {onDetails && (
+          <button className="ghost info" onClick={() => onDetails(card)}>
+            Details
+          </button>
+        )}
         <p className="kind">
           {card.type} · {card.year}
         </p>
@@ -197,8 +208,10 @@ const cardVariants = {
   },
 };
 
-function SwipeCard({ card, onRate, reduce }) {
+function SwipeCard({ card, onRate, onDetails, reduce }) {
   const lastTap = useRef(0);
+  const single = useRef(0); // timer that turns a lone tap on the picture into "open details"
+  useEffect(() => () => clearTimeout(single.current), []);
   const isPresent = useIsPresent();
   const x = useMotionValue(0);
   const y = useMotionValue(0);
@@ -215,14 +228,22 @@ function SwipeCard({ card, onRate, reduce }) {
 
   // Motion only fires onTap when the press did not turn into a drag.
   const onTap = (e) => {
-    if (e.timeStamp - lastTap.current < DOUBLE_TAP) onRate("liked", card.id);
+    if (e.target.closest?.("button")) return; // the Details button handles itself
+    clearTimeout(single.current);
+    if (e.timeStamp - lastTap.current < DOUBLE_TAP) {
+      lastTap.current = 0;
+      return onRate("liked", card.id);
+    }
     lastTap.current = e.timeStamp;
+    // Wait out the double-tap window before treating it as a single tap.
+    if (e.target.closest?.(".poster")) single.current = setTimeout(() => onDetails(card), DOUBLE_TAP);
   };
 
   return (
     <CardFace
       as={motion.article}
       card={card}
+      onDetails={onDetails}
       className="card"
       aria-label={`${card.title}, ${card.type}, ${card.year}`}
       style={{ x, y, rotate, zIndex: isPresent ? 1 : 2, pointerEvents: isPresent ? "auto" : "none" }}
@@ -257,6 +278,62 @@ function Stamp({ dir, x, y }) {
     <motion.span className="stamp" data-dir={dir} style={{ opacity }} aria-hidden="true">
       {RATINGS[BY_SWIPE[dir]].label}
     </motion.span>
+  );
+}
+
+function Details({ card, onClose }) {
+  const dialog = useRef(null);
+  useEffect(() => {
+    dialog.current.showModal();
+  }, []);
+  return (
+    <dialog
+      className="details"
+      ref={dialog}
+      onClose={onClose}
+      onClick={(e) => e.target === dialog.current && dialog.current.close()} // tap outside the sheet
+      aria-labelledby="details-title"
+    >
+      <div className="sheet">
+        <button className="ghost close" onClick={() => dialog.current.close()}>
+          Close
+        </button>
+        {card.image && (
+          <div className="poster">
+            <img src={card.image} alt={`Poster for ${card.title}`} />
+          </div>
+        )}
+        <h2 id="details-title">{card.title}</h2>
+        <p className="kind">
+          {card.type} · {card.year}
+        </p>
+        <p className="genres">{card.genres}</p>
+        <dl className="scores">
+          <div>
+            <dt>IMDb</dt>
+            <dd>soon</dd>
+          </div>
+          <div>
+            <dt>Rotten Tomatoes</dt>
+            <dd>soon</dd>
+          </div>
+          <div>
+            <dt>Where to stream</dt>
+            <dd>soon</dd>
+          </div>
+        </dl>
+        {card.summary && <p className="summary">{card.summary}</p>}
+        {card.source && (
+          <p className="credit">
+            Summary{card.image ? " and image" : ""} from{" "}
+            <a href={card.source} target="_blank" rel="noreferrer">
+              Wikipedia
+            </a>
+            . Cast, runtime and scores arrive with real data.
+          </p>
+        )}
+      </div>
+    </dialog>
   );
 }
 
