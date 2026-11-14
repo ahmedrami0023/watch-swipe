@@ -3,7 +3,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { motion, useDragControls } from "motion/react";
 import { Poster } from "./Deck.jsx";
 import { BUILT } from "./cards.js";
-import { DECADES, GENRES, KINDS, NO_FILTERS, RATINGS, RATING_NAMES, SCORES, SERVICES, filterCount, matches, tmdbPage } from "./ratings.js";
+import { DECADES, FAV, GENRES, KINDS, NO_FILTERS, RATINGS, RATING_NAMES, SCORES, SERVICES, filterCount, matches, tmdbPage } from "./ratings.js";
 
 // Slides up, drags down from its header to dismiss, and plays its exit before the dialog really closes.
 // The slide and the drag live on separate elements: on one element the drag limits fought the slide-in and made it jump.
@@ -28,7 +28,12 @@ function Sheet({ title, onClose, children, footer }) {
     action?.();
     onClose();
     // The control that opened the sheet is about to disappear (card rated, row moved): park focus somewhere stable.
-    if (action) requestAnimationFrame(() => document.querySelector('.deck-empty h2, .rate-row button:not(:disabled), .page .chip[aria-pressed="true"]')?.focus());
+    // Search results stay where they are, so there the row that opened the sheet simply keeps focus.
+    // The same goes when the opener already vanished behind the sheet (un-favourited from the Favorites list).
+    requestAnimationFrame(() => {
+      if ((action || document.activeElement === document.body) && !document.querySelector(".search"))
+        document.querySelector('.deck-empty h2, .rate-row button:not(:disabled), .page .chip[aria-pressed="true"]')?.focus();
+    });
   };
   const close = (action) => {
     if (typeof action === "function") after.current = action;
@@ -79,7 +84,7 @@ function Sheet({ title, onClose, children, footer }) {
   );
 }
 
-export function Details({ card, rating, onPick, onRemove, onClose }) {
+export function Details({ card, rating, fav, onPick, onFav, onRemove, onClose }) {
   return (
     <Sheet title={card.title} onClose={onClose}>
       {(close) => (
@@ -124,6 +129,16 @@ export function Details({ card, rating, onPick, onRemove, onClose }) {
                 </button>
               );
             })}
+            {/* A favourite on an unrated title also marks it seen and liked, so it closes like a rating does. */}
+            <button
+              className="chip"
+              data-rating="fav"
+              aria-pressed={fav}
+              onClick={() => (rating ? onFav(card.id) : close(() => onFav(card.id)))}
+            >
+              <FAV.Icon size={18} weight={fav ? "fill" : "bold"} aria-hidden="true" />
+              {FAV.label}
+            </button>
           </div>
           {rating && (
             <button

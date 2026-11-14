@@ -3,10 +3,34 @@ import { useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Poster } from "./Deck.jsx";
 import { BUILT, CARDS } from "./cards.js";
-import { BY_ID, RATINGS, RATING_NAMES, clean } from "./ratings.js";
+import { MagnifyingGlass } from "@phosphor-icons/react";
+import { BY_ID, FAV, RATINGS, RATING_NAMES, clean, search } from "./ratings.js";
 
-const LIST_ORDER = ["want", "liked", "disliked", "unsure", "pass"];
+const LIST_ORDER = ["fav", "want", "liked", "disliked", "unsure", "pass"];
+const inList = (s, list) => (list === "fav" ? s.fav === true : s.rating === list);
+
+// One title in a list: poster, name, and small marks for its rating and favourite.
+function TitleRow({ card, rating, fav, onOpen }) {
+  const Mark = rating && RATINGS[rating].Icon;
+  return (
+    <button className="row" onClick={() => onOpen(card.id)}>
+      <Poster card={card} size="w154" className="thumb" />
+      <span>
+        <strong>{card.title}</strong>
+        <small>
+          {card.type} · {card.year}
+        </small>
+      </span>
+      <span className="marks">
+        {fav && <FAV.Icon size={18} weight="fill" data-rating="fav" role="img" aria-label="Favorite" />}
+        {Mark && <Mark size={18} weight={RATINGS[rating].solid} data-rating={rating} role="img" aria-label={RATINGS[rating].list} />}
+      </span>
+    </button>
+  );
+}
+
 const EMPTY = {
+  fav: "No favorites yet. Tap the heart on a title you love.",
   want: "Nothing saved yet. Swipe right on something.",
   liked: "Double-tap a poster you loved.",
   disliked: "Swipe down on ones that missed.",
@@ -16,37 +40,77 @@ const EMPTY = {
 
 export function Lists({ swipes, onOpen }) {
   const [which, setWhich] = useState("want");
-  const rows = swipes.filter((s) => s.rating === which).sort((a, b) => b.at - a.at);
+  const rows = swipes.filter((s) => inList(s, which)).sort((a, b) => b.at - a.at);
   return (
     <section className="page">
       <h1>Lists</h1>
       <div className="chips scroll" role="group" aria-label="Pick a list">
         {LIST_ORDER.map((name) => (
           <button key={name} className="chip" data-rating={name} aria-pressed={which === name} onClick={() => setWhich(name)}>
-            {RATINGS[name].list} <b>{swipes.filter((s) => s.rating === name).length}</b>
+            {(RATINGS[name] ?? FAV).list} <b>{swipes.filter((s) => inList(s, name)).length}</b>
           </button>
         ))}
       </div>
       {rows.length === 0 && <p className="quiet empty">{EMPTY[which]}</p>}
       <ul className="rows" key={which}>
         <AnimatePresence initial={false} mode="popLayout">
-          {rows.map(({ id }) => {
-            const card = BY_ID.get(id);
-            return (
-              <motion.li key={id} layout={rows.length <= 60} exit={{ opacity: 0, x: -40 }} transition={{ duration: 0.2 }}>
-                <button className="row" onClick={() => onOpen(id)}>
-                  <Poster card={card} size="w154" className="thumb" />
-                  <span>
-                    <strong>{card.title}</strong>
-                    <small>
-                      {card.type} · {card.year}
-                    </small>
-                  </span>
-                </button>
-              </motion.li>
-            );
-          })}
+          {rows.map(({ id, rating, fav }) => (
+            <motion.li key={id} layout={rows.length <= 60} exit={{ opacity: 0, x: -40 }} transition={{ duration: 0.2 }}>
+              <TitleRow card={BY_ID.get(id)} rating={which === "fav" ? rating : null} fav={which !== "fav" && fav} onOpen={onOpen} />
+            </motion.li>
+          ))}
         </AnimatePresence>
+      </ul>
+    </section>
+  );
+}
+
+// Look a title up directly instead of waiting for it in the deck.
+export function Search({ swipes, onOpen }) {
+  const [query, setQuery] = useState("");
+  const found = search(query, 61); // one extra, to know when there are more than we show
+  const results = found.slice(0, 60);
+  const mine = new Map(swipes.map((s) => [s.id, s]));
+  const asked = query.trim().length >= 2;
+  return (
+    <section className="page">
+      <h1>Search</h1>
+      {/* A form so the keyboard's Search key works: it puts the keyboard away. */}
+      <form
+        role="search"
+        onSubmit={(e) => {
+          e.preventDefault();
+          e.currentTarget.querySelector("input").blur();
+        }}
+      >
+      <label className="search">
+        <MagnifyingGlass size={20} weight="bold" aria-hidden="true" />
+        <span className="sr-only">Search titles, cast or director</span>
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Title, actor or director"
+          autoComplete="off"
+          autoCorrect="off"
+          spellCheck={false}
+          enterKeyHint="search"
+        />
+      </label>
+      </form>
+      <p className="quiet empty" role="status">
+        {!asked
+          ? `Look up any of the ${CARDS.length.toLocaleString()} titles to rate it, favorite it or see its details.`
+          : results.length === 0
+            ? "Nothing by that name in the catalogue yet."
+            : `${found.length > 60 ? "First 60" : results.length} match${results.length === 1 ? "" : "es"}`}
+      </p>
+      <ul className="rows">
+        {results.map((card) => (
+          <li key={card.id}>
+            <TitleRow card={card} rating={mine.get(card.id)?.rating} fav={mine.get(card.id)?.fav} onOpen={onOpen} />
+          </li>
+        ))}
       </ul>
     </section>
   );
@@ -166,6 +230,11 @@ export function You({ swipes, onImport, onReset }) {
               </li>
             );
           })}
+          <li data-rating="fav">
+            <FAV.Icon size={18} weight="fill" aria-hidden="true" />
+            <b>Heart</b>
+            <span>Favorite: seen it and loved it</span>
+          </li>
           <li>
             <span className="dotless" aria-hidden="true" />
             <b>Tap</b>

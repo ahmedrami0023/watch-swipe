@@ -10,7 +10,7 @@ import {
   useTransform,
 } from "motion/react";
 import { ArrowCounterClockwise, SlidersHorizontal } from "@phosphor-icons/react";
-import { BY_SWIPE, DOUBLE_TAP, FLICK, RATINGS, RATING_NAMES, THRESHOLD, imageUrl, progress, rawTint, sample } from "./ratings.js";
+import { BY_SWIPE, DOUBLE_TAP, FAV, FLICK, RATINGS, RATING_NAMES, THRESHOLD, imageUrl, progress, rawTint, sample } from "./ratings.js";
 
 // Poster image. crossOrigin lets us read its colour; a broken link falls back to a tinted block.
 export function Poster({ card, path = card.poster, size = "w780", className, alt = "", onTint }) {
@@ -38,7 +38,7 @@ export function Poster({ card, path = card.poster, size = "w780", className, alt
   );
 }
 
-function CardFace({ card, onTint, onDetails, children }) {
+function CardFace({ card, onTint, onDetails, onFav, children }) {
   return (
     <>
       <Poster card={card} className="art" onTint={onTint} />
@@ -60,6 +60,22 @@ function CardFace({ card, onTint, onDetails, children }) {
           {onDetails && (
             <button className="pill solid" onClick={() => onDetails(card.id)}>
               Details
+            </button>
+          )}
+          {onFav && (
+            <button
+              className="pill solid icon"
+              data-rating="fav"
+              aria-label="Favorite: seen it and loved it"
+              onClick={(e) => {
+                // A keyboard press has no pointer position: burst from the button, then park focus (this button is about to leave).
+                const box = e.currentTarget.getBoundingClientRect();
+                const byKeyboard = e.detail === 0;
+                onFav(card.id, byKeyboard ? { x: box.x + box.width / 2, y: box.y + box.height / 2 } : { x: e.clientX, y: e.clientY });
+                if (byKeyboard) requestAnimationFrame(() => document.querySelector(".rate-row button:not(:disabled), .deck-empty h2")?.focus());
+              }}
+            >
+              <FAV.Icon size={20} weight="bold" aria-hidden="true" />
             </button>
           )}
         </div>
@@ -99,7 +115,7 @@ const cardVariants = {
   },
 };
 
-function SwipeCard({ card, raw, shared, pull, enterFrom, reduce, onRate, onDetails, onTint, onDragging }) {
+function SwipeCard({ card, raw, shared, pull, enterFrom, reduce, onRate, onDetails, onFav, onTint, onDragging }) {
   const isPresent = useIsPresent();
   const leaving = usePresenceData(); // { rating } once this card is on its way out
   const x = useMotionValue(0);
@@ -170,7 +186,7 @@ function SwipeCard({ card, raw, shared, pull, enterFrom, reduce, onRate, onDetai
       animate="center"
       exit="exit"
     >
-      <CardFace card={card} onTint={onTint} onDetails={onDetails}>
+      <CardFace card={card} onTint={onTint} onDetails={onDetails} onFav={(id, point) => travel.current < 10 && onFav(id, point)}>
         {Object.keys(BY_SWIPE).map((dir) => (
           <Stamp key={dir} dir={dir} x={x} y={y} />
         ))}
@@ -265,7 +281,7 @@ function Empty({ filtered, total, onFilters, onClear, onLists }) {
   );
 }
 
-export default function Deck({ deck, total, leaving, back, tints, reduce, filters, canUndo, onRate, onUndo, onDetails, onTint, onFilters, onClearFilters, onLists, onDragging }) {
+export default function Deck({ deck, total, leaving, back, tints, reduce, filters, canUndo, onRate, onUndo, onDetails, onFav, onTint, onFilters, onClearFilters, onLists, onDragging }) {
   const [top, next, third] = deck;
   const dragX = useMotionValue(0);
   const dragY = useMotionValue(0);
@@ -302,6 +318,7 @@ export default function Deck({ deck, total, leaving, back, tints, reduce, filter
               reduce={reduce}
               onRate={onRate}
               onDetails={onDetails}
+              onFav={onFav}
               onTint={onTint}
               onDragging={onDragging}
             />

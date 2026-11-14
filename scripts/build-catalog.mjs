@@ -17,12 +17,12 @@ const sinceTwoYears = new Date(Date.now() - 2 * 365 * 864e5).toISOString().slice
 
 // What goes in. "famous" lists are sorted by number of votes (the most widely seen titles first).
 const BUCKETS = [
-  { group: "movie", media: "movie", pages: 12, params: { sort_by: "vote_count.desc", without_keywords: ANIME } },
-  { group: "movie", media: "movie", pages: 3, params: { sort_by: "popularity.desc", "vote_count.gte": 300, "primary_release_date.gte": sinceTwoYears, without_keywords: ANIME } },
-  { group: "tv", media: "tv", pages: 8, params: { sort_by: "vote_count.desc", without_keywords: ANIME, without_genres: NOT_SHOWS } },
-  { group: "tv", media: "tv", pages: 2, params: { sort_by: "popularity.desc", "vote_count.gte": 150, "first_air_date.gte": sinceTwoYears, without_keywords: ANIME, without_genres: NOT_SHOWS } },
-  { group: "anime", media: "tv", pages: 5, params: { sort_by: "vote_count.desc", with_keywords: ANIME, with_genres: "16" } },
-  { group: "anime", media: "movie", pages: 2, params: { sort_by: "vote_count.desc", with_keywords: ANIME, with_genres: "16" } },
+  { group: "movie", media: "movie", pages: 25, params: { sort_by: "vote_count.desc", without_keywords: ANIME } },
+  { group: "movie", media: "movie", pages: 4, params: { sort_by: "popularity.desc", "vote_count.gte": 300, "primary_release_date.gte": sinceTwoYears, without_keywords: ANIME } },
+  { group: "tv", media: "tv", pages: 15, params: { sort_by: "vote_count.desc", without_keywords: ANIME, without_genres: NOT_SHOWS } },
+  { group: "tv", media: "tv", pages: 3, params: { sort_by: "popularity.desc", "vote_count.gte": 150, "first_air_date.gte": sinceTwoYears, without_keywords: ANIME, without_genres: NOT_SHOWS } },
+  { group: "anime", media: "tv", pages: 8, params: { sort_by: "vote_count.desc", with_keywords: ANIME, with_genres: "16" } },
+  { group: "anime", media: "movie", pages: 3, params: { sort_by: "vote_count.desc", with_keywords: ANIME, with_genres: "16" } },
 ];
 
 // The 20 hand-picked titles from the old sample deck, so ratings saved against them carry over.

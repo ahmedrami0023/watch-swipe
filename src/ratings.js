@@ -1,5 +1,5 @@
 // Shared rules: the five ratings, saved-data cleaning, and deck filters.
-import { Heart, Question, Star, ThumbsDown, X } from "@phosphor-icons/react";
+import { BookmarkSimple, Heart, Question, Star, ThumbsDown, X } from "@phosphor-icons/react";
 import { CARDS, LEGACY_IDS } from "./cards.js";
 
 export const STORE = "watch-swipe:v2"; // saves the rating, not the gesture
@@ -16,8 +16,10 @@ export const RATINGS = {
   disliked: { label: "Seen it, didn't like it", short: "Disliked", list: "Disliked", swipe: "down", key: "ArrowDown", Icon: ThumbsDown, solid: "fill" },
   liked: { label: "Seen it, liked it", short: "Liked", list: "Liked", swipe: null, key: "l", Icon: Star, solid: "fill" },
   unsure: { label: "Haven't seen it, not sure", short: "Not sure", list: "Not sure", swipe: "up", key: "ArrowUp", Icon: Question, solid: "fill" },
-  want: { label: "Want to watch", short: "Want", list: "Want", swipe: "right", key: "ArrowRight", Icon: Heart, solid: "fill" },
+  want: { label: "Want to watch", short: "Want", list: "Want", swipe: "right", key: "ArrowRight", Icon: BookmarkSimple, solid: "fill" },
 };
+// A favourite is a flag on top of a rating, not a sixth rating: the heart. (Want is the bookmark.)
+export const FAV = { label: "Favorite", list: "Favorites", Icon: Heart };
 export const RATING_NAMES = Object.keys(RATINGS);
 export const BY_SWIPE = Object.fromEntries(RATING_NAMES.filter((r) => RATINGS[r].swipe).map((r) => [RATINGS[r].swipe, r]));
 export const BY_ID = new Map(CARDS.map((c) => [c.id, c]));
@@ -37,7 +39,7 @@ export function clean(raw) {
   const known = new Set(BY_ID.keys());
   return raw
     .filter((s) => s && typeof s === "object" && Object.hasOwn(RATINGS, s.rating))
-    .map((s) => ({ id: (Object.hasOwn(LEGACY_IDS, s.id) && LEGACY_IDS[s.id]) || s.id, rating: s.rating, at: Number.isFinite(s.at) ? s.at : 0 }))
+    .map((s) => ({ id: (Object.hasOwn(LEGACY_IDS, s.id) && LEGACY_IDS[s.id]) || s.id, rating: s.rating, at: Number.isFinite(s.at) ? s.at : 0, ...(s.fav === true && { fav: true }) }))
     .filter((s) => known.delete(s.id));
 }
 
@@ -61,6 +63,34 @@ export function loadOrphans() {
   } catch {
     return [];
   }
+}
+
+// ---- search ----
+// Lower-case, strip accents and punctuation, so "shippuden" finds "Shippūden" and "greys anatomy" finds "Grey's Anatomy".
+const fold = (text) =>
+  text
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/['’]/g, "")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+// "tight" is the title with no spaces, so "spiderman" finds "Spider-Man".
+const INDEX = CARDS.map((c) => {
+  const title = fold(c.title);
+  return { title, tight: title.replaceAll(" ", ""), people: fold([...c.cast, ...(c.by?.names ?? [])].join(" , ")) };
+});
+// Titles first (exact, then starts-with, then a word, then anywhere), then cast and director; ties keep deck order.
+export function search(query, limit = 60) {
+  const q = fold(query);
+  if (q.length < 2) return [];
+  const tightQ = q.replaceAll(" ", "");
+  const hits = [];
+  INDEX.forEach(({ title, tight, people }, i) => {
+    const rank = title === q ? 0 : title.startsWith(q) ? 1 : title.includes(` ${q}`) ? 2 : title.includes(q) || tight.includes(tightQ) ? 3 : people.includes(q) ? 4 : -1;
+    if (rank >= 0) hits.push([rank, i]);
+  });
+  return hits.sort((a, b) => a[0] - b[0] || a[1] - b[1]).slice(0, limit).map(([, i]) => CARDS[i]);
 }
 
 // ---- deck filters ----

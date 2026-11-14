@@ -16,6 +16,7 @@
   --unsure: #5aa9ff;
   --disliked: #ff5a5f;
   --liked: #f6b93b;
+  --fav: #ff7ab6; /* favourites: the heart */
 
   --raw: #3a4250; /* a card's own colour, set inline */
   --tint: var(--raw);
@@ -44,6 +45,7 @@
 [data-rating="unsure"] { --c: var(--unsure); }
 [data-rating="disliked"] { --c: var(--disliked); }
 [data-rating="liked"] { --c: var(--liked); }
+[data-rating="fav"] { --c: var(--fav); }
 
 * {
   box-sizing: border-box;
@@ -174,6 +176,12 @@ button:disabled,
 .pill.solid {
   background: color-mix(in oklch, var(--tint) 18%, rgb(12 13 16 / 0.72));
   border: 1px solid rgb(255 255 255 / 0.16);
+}
+.pill.icon {
+  width: 44px;
+  padding: 0;
+  justify-content: center;
+  color: var(--c);
 }
 .pill.stat {
   min-height: 36px;
@@ -388,7 +396,7 @@ button:disabled,
   margin: 0 auto;
   padding: 4px;
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   border-radius: 999px;
   background: linear-gradient(180deg, rgb(255 255 255 / 0.1), rgb(255 255 255 / 0.03)), rgb(22 23 28 / 0.52);
   -webkit-backdrop-filter: blur(24px) saturate(180%);
@@ -594,7 +602,7 @@ button:disabled,
 }
 .row {
   display: grid;
-  grid-template-columns: 40px 1fr;
+  grid-template-columns: 40px 1fr auto;
   align-items: center;
   gap: 14px;
   width: 100%;
@@ -608,6 +616,45 @@ button:disabled,
   display: grid;
   gap: 2px;
   min-width: 0;
+}
+.row .marks {
+  display: flex;
+  gap: 8px;
+}
+.marks svg {
+  color: var(--c);
+}
+
+/* Search field. Text entry needs selection back on (it is off app-wide), and 16px stops iOS zooming in on focus. */
+.search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 0 16px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--muted);
+}
+.search:focus-within {
+  border-color: var(--text);
+}
+.search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 16px;
+  user-select: text;
+  -webkit-user-select: text;
+  touch-action: manipulation;
+}
+.search input::placeholder {
+  color: var(--muted);
 }
 .row strong {
   font-weight: 600;

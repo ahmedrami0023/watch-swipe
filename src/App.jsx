@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { AnimatePresence, MotionConfig, motion, useReducedMotion } from "motion/react";
-import { Cards, ListBullets, UserCircle } from "@phosphor-icons/react";
+import { Cards, ListBullets, MagnifyingGlass, UserCircle } from "@phosphor-icons/react";
 import { CARDS } from "./cards.js";
 import Deck from "./Deck.jsx";
-import { Lists, You } from "./Pages.jsx";
+import { Lists, Search, You } from "./Pages.jsx";
 import { Details, Filters } from "./Sheets.jsx";
 import { BY_ID, FILTER_STORE, NO_FILTERS, RATINGS, RATING_NAMES, STORE, filterCount, load, loadFilters, loadOrphans, matches, rawTint } from "./ratings.js";
 
@@ -11,6 +11,7 @@ const TABS = [
   { id: "swipe", label: "Swipe", Icon: Cards },
   { id: "lists", label: "Lists", Icon: ListBullets },
   { id: "you", label: "You", Icon: UserCircle },
+  { id: "search", label: "Search", Icon: MagnifyingGlass }, // search sits at the trailing end, as on iOS
 ];
 
 // leaving: the rating the last card left with (drives its exit). back: the swipe Undo just restored (drives its return).
@@ -35,11 +36,29 @@ function reducer(state, action) {
     case "set": // change a rating from a list
       if (!has(action.id)) return state;
       return {
-        swipes: state.swipes.map((s) => (s.id === action.id ? { ...s, rating: action.rating } : s)),
+        // Re-rating to anything but Liked takes the title out of favourites.
+        swipes: state.swipes.map((s) => (s.id === action.id ? { id: s.id, rating: action.rating, at: s.at, ...(s.fav && action.rating === "liked" && { fav: true }) } : s)),
         leaving: null,
         back: null,
         note: `${title(action.id)}: ${RATINGS[action.rating].label}`,
       };
+    case "fav": {
+      const current = state.swipes.find((s) => s.id === action.id);
+      if (current) {
+        const fav = !current.fav;
+        // Favouriting something rated otherwise also marks it Liked.
+        const next = fav ? { id: current.id, rating: "liked", at: current.at, fav: true } : { id: current.id, rating: current.rating, at: current.at };
+        return { ...state, swipes: state.swipes.map((s) => (s === current ? next : s)), note: `${title(action.id)}: ${fav ? "added to" : "removed from"} favorites` };
+      }
+      // A favourite you haven't rated yet counts as seen and liked, and leaves the deck like a double-tap.
+      if (!BY_ID.has(action.id)) return state;
+      return {
+        swipes: [...state.swipes, { id: action.id, rating: "liked", at: action.at, fav: true }],
+        leaving: "liked",
+        back: null,
+        note: `${title(action.id)}: favorite. ${RATINGS.liked.label}`,
+      };
+    }
     case "remove":
       if (!has(action.id)) return state;
       return { swipes: state.swipes.filter((s) => s.id !== action.id), leaving: null, back: null, note: `${title(action.id)} is back in the deck` };
@@ -107,6 +126,10 @@ export default function App() {
 
   const rate = useCallback((rating, id, point) => {
     dispatch({ type: "rate", rating, id, at: Date.now() });
+    if (point) setBurst({ ...point, key: Date.now() });
+  }, []);
+  const favorite = useCallback((id, point) => {
+    dispatch({ type: "fav", id, at: Date.now() });
     if (point) setBurst({ ...point, key: Date.now() });
   }, []);
   const onTint = useCallback((id, colour) => setTints((t) => (t[id] ? t : { ...t, [id]: colour })), []);
@@ -185,6 +208,7 @@ export default function App() {
                 onRate={rate}
                 onUndo={() => dispatch({ type: "undo" })}
                 onDetails={setDetails}
+                onFav={favorite}
                 onTint={onTint}
                 onFilters={() => setFiltersOpen(true)}
                 onClearFilters={() => applyFilters(NO_FILTERS)}
@@ -193,6 +217,7 @@ export default function App() {
               />
             )}
             {tab === "lists" && <Lists swipes={swipes} onOpen={setDetails} />}
+            {tab === "search" && <Search swipes={swipes} onOpen={setDetails} />}
             {tab === "you" && <You swipes={swipes} onImport={(fresh) => dispatch({ type: "import", swipes: fresh })} onReset={() => {
                 orphans.current = []; // "erase all" means all
                 dispatch({ type: "reset" });
@@ -214,6 +239,8 @@ export default function App() {
           <Details
             card={detailsCard}
             rating={rated.get(details) ?? null}
+            fav={swipes.some((s) => s.id === details && s.fav)}
+            onFav={(id) => favorite(id)}
             onPick={(id, rating) => (rated.has(id) ? dispatch({ type: "set", id, rating }) : rate(rating, id))}
             onRemove={(id) => dispatch({ type: "remove", id })}
             onClose={() => setDetails(null)}
