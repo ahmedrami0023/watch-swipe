@@ -115,7 +115,7 @@ const cardVariants = {
   },
 };
 
-function SwipeCard({ card, raw, shared, pull, enterFrom, reduce, onRate, onDetails, onFav, onTint, onDragging }) {
+function SwipeCard({ card, raw, shared, pull, enterFrom, reduce, onRate, onDetails, onFav, onTint }) {
   const isPresent = useIsPresent();
   const leaving = usePresenceData(); // { rating } once this card is on its way out
   const x = useMotionValue(0);
@@ -140,7 +140,6 @@ function SwipeCard({ card, raw, shared, pull, enterFrom, reduce, onRate, onDetai
   const [initial] = useState(() => (enterFrom ? { ...awayPose(enterFrom), opacity: enterFrom === "liked" ? 0 : 1 } : { scale: 0.94 + 0.06 * pull.get() }));
 
   const onDragEnd = (event, { offset, velocity }) => {
-    onDragging(false);
     if (event.type === "pointercancel") return; // iOS took the gesture (edge swipe, Control Center): never rate
     const horizontal = Math.abs(offset.x) > Math.abs(offset.y);
     const dist = horizontal ? offset.x : offset.y;
@@ -173,10 +172,7 @@ function SwipeCard({ card, raw, shared, pull, enterFrom, reduce, onRate, onDetai
       dragSnapToOrigin
       whileDrag={{ scale: 1.03 }}
       onPointerDown={() => (travel.current = 0)}
-      onDragStart={() => {
-        clearTimeout(single.current);
-        onDragging(true);
-      }}
+      onDragStart={() => clearTimeout(single.current)}
       onDrag={(_, info) => (travel.current = Math.max(travel.current, Math.hypot(info.offset.x, info.offset.y)))}
       onDragEnd={onDragEnd}
       onTap={onTap}
@@ -281,7 +277,7 @@ function Empty({ filtered, total, onFilters, onClear, onLists }) {
   );
 }
 
-export default function Deck({ deck, total, leaving, back, tints, reduce, filters, canUndo, onRate, onUndo, onDetails, onFav, onTint, onFilters, onClearFilters, onLists, onDragging }) {
+export default function Deck({ deck, total, leaving, back, tints, reduce, filters, canUndo, onRate, onUndo, onDetails, onFav, onTint, onFilters, onClearFilters, onLists }) {
   const [top, next, third] = deck;
   const dragX = useMotionValue(0);
   const dragY = useMotionValue(0);
@@ -320,7 +316,6 @@ export default function Deck({ deck, total, leaving, back, tints, reduce, filter
               onDetails={onDetails}
               onFav={onFav}
               onTint={onTint}
-              onDragging={onDragging}
             />
           )}
         </AnimatePresence>
@@ -328,7 +323,7 @@ export default function Deck({ deck, total, leaving, back, tints, reduce, filter
       </div>
 
       <div className="topbar">
-        <button className="pill glass" onClick={onFilters}>
+        <button className="pill solid" onClick={onFilters}>
           <SlidersHorizontal size={18} weight="bold" aria-hidden="true" />
           <span className="txt">Filters</span>
           {filters > 0 && (
@@ -337,7 +332,7 @@ export default function Deck({ deck, total, leaving, back, tints, reduce, filter
             </b>
           )}
         </button>
-        <p className="pill glass stat">
+        <p className="pill solid stat">
           <span className="sr-only">{deck.length} left</span>
           <span className="tick" aria-hidden="true">
             <AnimatePresence mode="popLayout" initial={false}>
@@ -348,7 +343,7 @@ export default function Deck({ deck, total, leaving, back, tints, reduce, filter
           </span>
           <span aria-hidden="true">left</span>
         </p>
-        <button className="pill glass" onClick={onUndo} aria-disabled={!canUndo}>
+        <button className="pill solid" onClick={onUndo} aria-disabled={!canUndo}>
           <ArrowCounterClockwise size={18} weight="bold" aria-hidden="true" />
           <span className="txt">Undo</span>
         </button>

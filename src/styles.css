@@ -144,24 +144,7 @@ button:disabled,
   background: radial-gradient(120% 70% at 50% 0%, color-mix(in oklch, var(--tint) 50%, transparent), transparent 72%);
 }
 
-/* ---- glass and pills ---- */
-.glass {
-  background: rgb(12 13 16 / 0.55);
-  -webkit-backdrop-filter: blur(16px) saturate(160%);
-  backdrop-filter: blur(16px) saturate(160%);
-  border: 1px solid rgb(255 255 255 / 0.18);
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.16), 0 6px 20px rgb(0 0 0 / 0.35);
-}
-[data-dragging] .glass {
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
-  background: rgb(20 20 24 / 0.8);
-}
-@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  .glass {
-    background: rgb(27 30 36 / 0.92);
-  }
-}
+/* ---- pills ---- */
 .pill {
   display: inline-flex;
   align-items: center;
@@ -307,6 +290,10 @@ button:disabled,
   gap: 8px;
   pointer-events: none;
 }
+.topbar .pill {
+  background: color-mix(in oklch, var(--tint) 16%, rgb(12 13 16 / 0.88));
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.35);
+}
 .topbar > * {
   pointer-events: auto;
   justify-self: center;
@@ -383,9 +370,8 @@ button:disabled,
   color: var(--ink);
 }
 
-/* Floating tab bar, modelled on the iOS tab bar: a glass capsule that floats above the content.
-   Kept monochrome because the posters behind it are colourful (Apple's guidance for tab bars over rich content).
-   This is a web approximation of Liquid Glass (blur plus layered highlights), not Apple's own material. */
+/* Floating tab bar: a solid capsule in the same family as the pills and rating buttons. No blur, no gloss.
+   It carries a little of the current poster's colour; the selected tab carries more. */
 .tabs {
   position: absolute;
   left: 20px;
@@ -398,22 +384,10 @@ button:disabled,
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   border-radius: 999px;
-  background: linear-gradient(180deg, rgb(255 255 255 / 0.1), rgb(255 255 255 / 0.03)), rgb(22 23 28 / 0.52);
-  -webkit-backdrop-filter: blur(24px) saturate(180%);
-  backdrop-filter: blur(24px) saturate(180%);
-  border: 1px solid rgb(255 255 255 / 0.16);
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.28), inset 0 -1px 0 rgb(255 255 255 / 0.06), 0 10px 30px rgb(0 0 0 / 0.45);
+  background: color-mix(in oklch, var(--tint) 12%, #111317);
+  border: 1px solid rgb(255 255 255 / 0.1);
+  box-shadow: 0 10px 28px rgb(0 0 0 / 0.5);
   z-index: 2;
-}
-[data-dragging] .tabs {
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
-  background: rgb(27 28 33 / 0.94);
-}
-@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  .tabs {
-    background: rgb(27 28 33 / 0.94);
-  }
 }
 .tabs button {
   position: relative;
@@ -422,24 +396,23 @@ button:disabled,
   align-content: center;
   gap: 2px;
   border-radius: 999px;
-  color: rgb(255 255 255 / 0.72);
+  color: var(--muted);
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.01em;
 }
 .tabs button[aria-current] {
-  color: #fff;
+  color: var(--text);
 }
 .tabs button > * {
   position: relative;
 }
-/* The selected tab's lozenge. It slides between tabs. */
+/* The selected tab's pill. It slides between tabs. */
 .tabs .tab-pill {
   position: absolute;
   inset: 0;
   border-radius: 999px;
-  background: rgb(255 255 255 / 0.16);
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.3), inset 0 0 0 1px rgb(255 255 255 / 0.07);
+  background: color-mix(in oklch, var(--tint) 46%, #1d2026);
 }
 /* Scroll edge: content fades out as it passes under the floating bar. */
 .app::after {

@@ -108,7 +108,6 @@ export default function App() {
   const [burst, setBurst] = useState(null);
   const [saveFailed, setSaveFailed] = useState(false);
   const reduce = useReducedMotion();
-  const root = useRef(null);
   const orphans = useRef(null); // ratings for titles not in this catalogue: saved back as they were
   if (orphans.current === null) orphans.current = loadOrphans();
   const { swipes } = state;
@@ -133,8 +132,6 @@ export default function App() {
     if (point) setBurst({ ...point, key: Date.now() });
   }, []);
   const onTint = useCallback((id, colour) => setTints((t) => (t[id] ? t : { ...t, [id]: colour })), []);
-  // Blur is expensive under a moving card, so glass goes solid for the length of a drag (no re-render).
-  const onDragging = useCallback((on) => root.current?.toggleAttribute("data-dragging", on), []);
 
   useEffect(() => {
     try {
@@ -185,7 +182,7 @@ export default function App() {
 
   return (
     <MotionConfig reducedMotion="user">
-      <div className="app tinted" ref={root} style={{ "--raw": raw }}>
+      <div className="app tinted" style={{ "--raw": raw }}>
         {/* Ambient glow in the top card's colour. Two layers cross-fade; the gradient itself never animates. */}
         <div className="ambient" aria-hidden="true">
           <AnimatePresence initial={false}>
@@ -213,7 +210,6 @@ export default function App() {
                 onFilters={() => setFiltersOpen(true)}
                 onClearFilters={() => applyFilters(NO_FILTERS)}
                 onLists={() => setTab("lists")}
-                onDragging={onDragging}
               />
             )}
             {tab === "lists" && <Lists swipes={swipes} onOpen={setDetails} />}
@@ -229,7 +225,7 @@ export default function App() {
           {TABS.map(({ id, label, Icon }) => (
             <motion.button key={id} aria-current={tab === id ? "page" : undefined} onClick={() => setTab(id)} whileTap={{ scale: 0.94 }}>
               {tab === id && <motion.span layoutId="tab-pill" className="tab-pill" transition={{ type: "spring", bounce: 0.25, visualDuration: 0.35 }} />}
-              <Icon size={24} weight="fill" aria-hidden="true" />
+              <Icon size={24} weight={tab === id ? "fill" : "regular"} aria-hidden="true" />
               <span>{label}</span>
             </motion.button>
           ))}
