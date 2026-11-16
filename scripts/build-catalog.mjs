@@ -68,8 +68,17 @@ const GENRE = { "Science Fiction": ["Sci-fi"], "Sci-Fi & Fantasy": ["Sci-fi & Fa
 const genres = (list) => [...new Set(list.flatMap((g) => GENRE[g.name] ?? [g.name]))];
 const duration = (min) => (min ? (min >= 60 ? `${Math.floor(min / 60)}h ${min % 60}m` : `${min}m`) : null);
 // One name per service: drop ad tiers and add-on channels, and fold plan names ("Peacock Premium Plus") into the service.
+const LOGOS = {}; // service name -> its logo on TMDB, filled in as titles are read
 const services = (list = []) => [
-  ...new Set(list.map((p) => p.provider_name).filter((n) => !/channel|with ads/i.test(n)).map((n) => n.replace(/ (Premium Plus|Premium|Essential|Standard)$/, ""))),
+  ...new Set(
+    list
+      .filter((p) => !/channel|with ads/i.test(p.provider_name))
+      .map((p) => {
+        const name = p.provider_name.replace(/ (Premium Plus|Premium|Essential|Standard)$/, "");
+        if (p.logo_path) LOGOS[name] ??= p.logo_path;
+        return name;
+      }),
+  ),
 ];
 
 async function build({ media, id, group }, index) {
@@ -193,6 +202,8 @@ writeFileSync(
 export const BUILT = "${today}";
 // Ratings saved against the old 20-title sample deck map onto the same titles here.
 export const LEGACY_IDS = ${JSON.stringify(legacy)};
+// Streaming service logos (TMDB image paths), by the service names used on the cards.
+export const LOGOS = ${JSON.stringify(Object.fromEntries(Object.entries(LOGOS).sort()))};
 export const CARDS = [
 ${cards.map((c) => JSON.stringify(c)).join(",\n")}
 ];

@@ -3,7 +3,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { animate, motion, useDragControls, useMotionValue } from "motion/react";
 import { Play } from "@phosphor-icons/react";
 import { Poster } from "./Deck.jsx";
-import { BUILT, CARDS } from "./cards.js";
+import { BUILT, CARDS, LOGOS } from "./cards.js";
 import { DECADES, FAV, GENRES, KINDS, NO_FILTERS, RATINGS, RATING_NAMES, SCORES, SERVICES, filterCount, imageUrl, matches, tmdbPage } from "./ratings.js";
 
 const BY_ID = new Map(CARDS.map((c) => [c.id, c]));
@@ -58,7 +58,7 @@ function Sheet({ title, onClose, children, footer }) {
     let pulling = false;
     const down = (e) => {
       pulling = false;
-      start = el.scrollTop <= 0 && e.touches.length === 1 ? { x: e.touches[0].clientX, y: e.touches[0].clientY, t: e.timeStamp } : null;
+      start = el.scrollTop <= 0 && e.touches.length === 1 && !e.target.closest(".viewer") ? { x: e.touches[0].clientX, y: e.touches[0].clientY, t: e.timeStamp } : null;
     };
     const move = (e) => {
       if (!start) return;
@@ -161,7 +161,28 @@ function Trailer({ id, title }) {
   );
 }
 
+// Photos full screen: swipe sideways for the next one, tap anywhere (or Escape) to go back.
+function Viewer({ photos, start, title, onClose }) {
+  const dialog = useRef(null);
+  const strip = useRef(null);
+  useEffect(() => {
+    if (!dialog.current.open) dialog.current.showModal();
+    strip.current.scrollLeft = start * strip.current.clientWidth;
+  }, [start]);
+  return (
+    <dialog className="viewer" ref={dialog} aria-label={`Photos of ${title}`} onClose={onClose} onClick={() => dialog.current.close()}>
+      <div className="viewer-strip" ref={strip}>
+        {photos.map((path, k) => (
+          <img key={path} src={imageUrl(path, "w1280")} alt={`Photo ${k + 1} of ${photos.length}`} draggable="false" />
+        ))}
+      </div>
+      <button className="pill solid viewer-close">Close</button>
+    </dialog>
+  );
+}
+
 export function Details({ card, rating, fav, onPick, onFav, onRemove, onOpen, onClose }) {
+  const [zoom, setZoom] = useState(null); // which photo is open full screen
   const photos = [card.backdrop, ...(card.shots ?? [])].filter(Boolean);
   const similar = card.recs.map((id) => BY_ID.get(id)).filter(Boolean).slice(0, 12);
   // Opening a similar title swaps what the sheet shows, so start it from the top again.
@@ -242,10 +263,13 @@ export function Details({ card, rating, fav, onPick, onFav, onRemove, onOpen, on
             <>
               <h3>Photos</h3>
               <div className="rail">
-                {photos.map((path) => (
-                  <img key={path} className="shot" src={imageUrl(path, "w780")} alt="" loading="lazy" draggable="false" />
+                {photos.map((path, k) => (
+                  <button key={path} className="shot" onClick={() => setZoom(k)} aria-label={`Photo ${k + 1} of ${photos.length}, open full screen`}>
+                    <img src={imageUrl(path, "w780")} alt="" loading="lazy" draggable="false" />
+                  </button>
                 ))}
               </div>
+              {zoom !== null && <Viewer photos={photos} start={zoom} title={card.title} onClose={() => setZoom(null)} />}
             </>
           )}
           {card.summary && (
@@ -265,6 +289,7 @@ export function Details({ card, rating, fav, onPick, onFav, onRemove, onOpen, on
             <p className="services">
               {card.providers.map((name) => (
                 <span key={name} className="pill solid stat">
+                  {LOGOS[name] && <img className="logo" src={imageUrl(LOGOS[name], "w92")} alt="" loading="lazy" />}
                   {name}
                 </span>
               ))}
