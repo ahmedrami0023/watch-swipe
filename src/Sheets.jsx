@@ -1,14 +1,21 @@
 // Bottom sheets: title details and deck filters. Built on the native <dialog> (focus trap, Escape, inert page).
 import { useEffect, useId, useRef, useState } from "react";
-import { motion, useDragControls } from "motion/react";
+import { animate, motion, useDragControls, useMotionValue } from "motion/react";
+import { Play } from "@phosphor-icons/react";
 import { Poster } from "./Deck.jsx";
-import { BUILT } from "./cards.js";
-import { DECADES, FAV, GENRES, KINDS, NO_FILTERS, RATINGS, RATING_NAMES, SCORES, SERVICES, filterCount, matches, tmdbPage } from "./ratings.js";
+import { BUILT, CARDS } from "./cards.js";
+import { DECADES, FAV, GENRES, KINDS, NO_FILTERS, RATINGS, RATING_NAMES, SCORES, SERVICES, filterCount, imageUrl, matches, tmdbPage } from "./ratings.js";
 
-// Slides up, drags down from its header to dismiss, and plays its exit before the dialog really closes.
+const BY_ID = new Map(CARDS.map((c) => [c.id, c]));
+
+// Slides up, drags down to dismiss (from its header, or from anywhere once the content is scrolled to the top),
+// and plays its exit before the dialog really closes.
 // The slide and the drag live on separate elements: on one element the drag limits fought the slide-in and made it jump.
 function Sheet({ title, onClose, children, footer }) {
   const dialog = useRef(null);
+  const body = useRef(null);
+  const y = useMotionValue(0);
+  const closeNow = useRef(null);
   const controls = useDragControls();
   const [open, setOpen] = useState(true);
   const done = useRef(false);
@@ -40,6 +47,51 @@ function Sheet({ title, onClose, children, footer }) {
     setOpen(false);
     setTimeout(finish, 450); // safety net if the exit animation is skipped (reduced motion)
   };
+  closeNow.current = close;
+
+  // Pulling down on the content closes the sheet, but only when the content is already at its top:
+  // otherwise the same finger movement just scrolls back up. Touch events, because the browser takes
+  // pointer events away as soon as it thinks a scroll has started.
+  useEffect(() => {
+    const el = body.current;
+    let start = null;
+    let pulling = false;
+    const down = (e) => {
+      pulling = false;
+      start = el.scrollTop <= 0 && e.touches.length === 1 ? { x: e.touches[0].clientX, y: e.touches[0].clientY, t: e.timeStamp } : null;
+    };
+    const move = (e) => {
+      if (!start) return;
+      const dx = e.touches[0].clientX - start.x;
+      const dy = e.touches[0].clientY - start.y;
+      if (!pulling) {
+        if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+        if (dy <= 0 || Math.abs(dx) > dy) return void (start = null); // scrolling down the page, or sideways through a row
+        pulling = true;
+      }
+      if (e.cancelable) e.preventDefault();
+      y.set(Math.max(0, dy - 8));
+    };
+    const up = (e) => {
+      if (pulling) {
+        const speed = (y.get() / Math.max(1, e.timeStamp - start.t)) * 1000;
+        if (y.get() > 120 || (y.get() > 40 && speed > 600)) closeNow.current();
+        else animate(y, 0, { type: "spring", bounce: 0, visualDuration: 0.25 });
+      }
+      start = null;
+      pulling = false;
+    };
+    el.addEventListener("touchstart", down, { passive: true });
+    el.addEventListener("touchmove", move, { passive: false });
+    el.addEventListener("touchend", up);
+    el.addEventListener("touchcancel", up);
+    return () => {
+      el.removeEventListener("touchstart", down);
+      el.removeEventListener("touchmove", move);
+      el.removeEventListener("touchend", up);
+      el.removeEventListener("touchcancel", up);
+    };
+  }, [y]);
 
   return (
     <dialog
@@ -62,6 +114,7 @@ function Sheet({ title, onClose, children, footer }) {
       >
       <motion.div
         className="sheet"
+        style={{ y }}
         drag="y"
         dragControls={controls}
         dragListener={false}
@@ -76,7 +129,7 @@ function Sheet({ title, onClose, children, footer }) {
             Close
           </button>
         </header>
-        <div className="sheet-body">{typeof children === "function" ? children(close) : children}</div>
+        <div className="sheet-body" ref={body}>{typeof children === "function" ? children(close) : children}</div>
         {footer && <footer className="sheet-foot">{footer(close)}</footer>}
       </motion.div>
       </motion.div>
@@ -84,7 +137,37 @@ function Sheet({ title, onClose, children, footer }) {
   );
 }
 
-export function Details({ card, rating, fav, onPick, onFav, onRemove, onClose }) {
+// The trailer loads from YouTube only when asked for; until then it is just a picture with a play button.
+function Trailer({ id, title }) {
+  const [playing, setPlaying] = useState(false);
+  return (
+    <div className="trailer">
+      {playing ? (
+        <iframe
+          src={`https://www.youtube-nocookie.com/embed/${id}?autoplay=1&playsinline=1`}
+          title={`Trailer for ${title}`}
+          allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
+          allowFullScreen
+        />
+      ) : (
+        <button onClick={() => setPlaying(true)} aria-label={`Play the trailer for ${title}`}>
+          <img src={`https://i.ytimg.com/vi/${id}/hqdefault.jpg`} alt="" loading="lazy" />
+          <span className="play">
+            <Play size={26} weight="fill" aria-hidden="true" />
+          </span>
+        </button>
+      )}
+    </div>
+  );
+}
+
+export function Details({ card, rating, fav, onPick, onFav, onRemove, onOpen, onClose }) {
+  const photos = [card.backdrop, ...(card.shots ?? [])].filter(Boolean);
+  const similar = card.recs.map((id) => BY_ID.get(id)).filter(Boolean).slice(0, 12);
+  // Opening a similar title swaps what the sheet shows, so start it from the top again.
+  useEffect(() => {
+    document.querySelector(".sheet-body")?.scrollTo(0, 0);
+  }, [card.id]);
   return (
     <Sheet title={card.title} onClose={onClose}>
       {(close) => (
@@ -149,6 +232,22 @@ export function Details({ card, rating, fav, onPick, onFav, onRemove, onClose })
             </button>
           )}
 
+          {card.trailer && (
+            <>
+              <h3>Trailer</h3>
+              <Trailer key={card.trailer} id={card.trailer} title={card.title} />
+            </>
+          )}
+          {photos.length > 0 && (
+            <>
+              <h3>Photos</h3>
+              <div className="rail">
+                {photos.map((path) => (
+                  <img key={path} className="shot" src={imageUrl(path, "w780")} alt="" loading="lazy" draggable="false" />
+                ))}
+              </div>
+            </>
+          )}
           {card.summary && (
             <>
               <h3>About</h3>
@@ -172,6 +271,24 @@ export function Details({ card, rating, fav, onPick, onFav, onRemove, onClose })
             </p>
           ) : (
             <p className="quiet">Not on a subscription service as of {BUILT}.</p>
+          )}
+          {similar.length > 0 && (
+            <>
+              <h3>More like this</h3>
+              <div className="rail">
+                {similar.map((other) => (
+                  <button key={other.id} className="like" onClick={() => onOpen(other.id)}>
+                    <span className="like-art">
+                      <Poster card={other} size="w342" className="art" />
+                    </span>
+                    <span className="like-title">{other.title}</span>
+                    <small>
+                      {other.type} · {other.year}
+                    </small>
+                  </button>
+                ))}
+              </div>
+            </>
           )}
           <p className="credit">
             Details from{" "}

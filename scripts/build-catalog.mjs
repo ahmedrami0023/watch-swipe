@@ -74,7 +74,7 @@ const services = (list = []) => [
 
 async function build({ media, id, group }, index) {
   const credits = media === "tv" ? "aggregate_credits" : "credits";
-  const d = await get(`/${media}/${id}`, { append_to_response: `${credits},watch/providers,external_ids,keywords,recommendations` });
+  const d = await get(`/${media}/${id}`, { append_to_response: `${credits},watch/providers,external_ids,keywords,recommendations,videos,images`, include_image_language: "en,null" });
   const date = d.release_date || d.first_air_date || "";
   if (!d.poster_path || !date) return null;
   const anime = group === "anime";
@@ -83,6 +83,10 @@ async function build({ media, id, group }, index) {
   let paired = d.recommendations?.results || [];
   if ((d.recommendations?.total_pages || 0) > 1) paired = paired.concat((await get(`/${media}/${id}/recommendations`, { page: 2 })).results || []);
   const recs = paired.map((r) => `${(r.media_type || media) === "tv" ? "t" : "m"}-${r.id}`);
+  // For the details page: the trailer (official one first) and a few more stills, the ones without text on them.
+  const trailers = (d.videos?.results || []).filter((v) => v.site === "YouTube" && v.type === "Trailer");
+  const trailer = (trailers.find((v) => v.official) ?? trailers[0])?.key ?? null;
+  const shots = (d.images?.backdrops || []).filter((b) => !b.iso_639_1 && b.file_path !== d.backdrop_path).slice(0, 5).map((b) => b.file_path);
   const us = d["watch/providers"]?.results?.US;
   const by = media === "tv" ? d.created_by?.map((c) => c.name) : d.credits?.crew?.filter((c) => c.job === "Director").map((c) => c.name);
   const facts =
@@ -97,6 +101,8 @@ async function build({ media, id, group }, index) {
     genres: genres(d.genres || []).filter((g) => !(anime && g === "Animation")),
     poster: d.poster_path,
     backdrop: d.backdrop_path || null,
+    shots,
+    trailer, // YouTube id
     summary: d.overview || null,
     rating: d.vote_count >= 50 ? Math.round(d.vote_average * 10) / 10 : null,
     votes: d.vote_count,

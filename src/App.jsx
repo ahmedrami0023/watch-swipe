@@ -261,6 +261,7 @@ export default function App() {
             onFav={(id) => favorite(id)}
             onPick={(id, rating) => (rated.has(id) ? dispatch({ type: "set", id, rating }) : rate(rating, id))}
             onRemove={(id) => dispatch({ type: "remove", id })}
+            onOpen={setDetails}
             onClose={() => setDetails(null)}
           />
         )}
