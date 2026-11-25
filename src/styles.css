@@ -1,6 +1,7 @@
 /* Watch Swipe, "Cinema" look. Dark only.
    Shape rule: anything you tap is fully round; anything that holds content is 20px; small thumbnails are 8px.
-   Colour rule: each rating owns one colour (button, stamp, badge, chart). Titles, body text and scores stay white/grey. */
+   Colour rule: each rating owns one colour (button, badge, chart). Scores run red to green by value, always with the number.
+   Titles and body text stay white/grey. */
 :root {
   color-scheme: dark;
   --bg: #07080a;
@@ -27,10 +28,21 @@
   /* The tab bar floats: about 21px off the bottom on iPhones with a home indicator, 12px elsewhere. */
   --tabs-b: max(12px, calc(var(--safe-b) - 13px));
   --chrome-b: calc(var(--tabs-b) + var(--tabs-h)); /* everything else sits above this */
-  --rate-h: 88px;
-  --disc: min(52px, 14vw); /* shrink with the screen so five always fit (zoomed text, small phones) */
-  --disc-big: min(64px, 17vw);
+  --disc: 48px; /* the round buttons on the right of the feed */
+  --rail-w: 64px;
+
+  /* TMDB scores, worst to best (thresholds: scoreTier in ratings.js). */
+  --score-1: #ff6b6b;
+  --score-2: #ffa94d;
+  --score-3: #ffd43b;
+  --score-4: #a9e34b;
+  --score-5: #51cf66;
 }
+[data-score="1"] { --s: var(--score-1); }
+[data-score="2"] { --s: var(--score-2); }
+[data-score="3"] { --s: var(--score-3); }
+[data-score="4"] { --s: var(--score-4); }
+[data-score="5"] { --s: var(--score-5); }
 /* Anything that sets --raw gets a tint clamped to a safe lightness and saturation, keeping only the hue. */
 .tinted {
   --tint: var(--raw);
@@ -46,6 +58,7 @@
 [data-rating="disliked"] { --c: var(--disliked); }
 [data-rating="liked"] { --c: var(--liked); }
 [data-rating="fav"] { --c: var(--fav); }
+[data-rating="info"] { --c: var(--text); }
 
 * {
   box-sizing: border-box;
@@ -120,9 +133,11 @@ button:disabled,
 .app {
   position: relative;
   height: 100%;
+  height: var(--app-h, 100%); /* the part of the screen you can actually see: set in main.jsx */
   max-width: 520px;
   margin: 0 auto;
   overflow: hidden;
+  overflow: clip; /* nothing may scroll this layer, not even the browser moving focus */
 }
 .ambient,
 .ambient > div,
@@ -151,7 +166,7 @@ button:disabled,
   scroll-snap-stop: always;
 }
 .topbar,
-.rate-row {
+.acts {
   z-index: 1;
 }
 .ambient > div {
@@ -174,12 +189,6 @@ button:disabled,
   background: color-mix(in oklch, var(--tint) 18%, rgb(12 13 16 / 0.72));
   border: 1px solid rgb(255 255 255 / 0.16);
 }
-.pill.icon {
-  width: 44px;
-  padding: 0;
-  justify-content: center;
-  color: var(--c);
-}
 .pill.stat {
   min-height: 36px;
   padding: 0 13px;
@@ -196,13 +205,18 @@ button:disabled,
   font-size: 12px;
 }
 
-/* ---- the card ---- */
+/* ---- the card ----
+   The whole poster on top, never cropped; the caption below it on the card's own tinted surface,
+   so words never cover the picture. On a short screen the poster shrinks and keeps its shape. */
 .card {
   position: absolute;
   inset: 0;
   overflow: hidden;
   border-radius: var(--r);
-  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  padding-bottom: calc(var(--chrome-b) + 14px);
+  background: color-mix(in oklch, var(--tint) 14%, #0d0f12);
   cursor: pointer;
 }
 .art {
@@ -214,73 +228,123 @@ button:disabled,
   object-position: center top;
   pointer-events: none;
 }
+.card > .art {
+  position: static;
+  flex: 0 1 auto;
+  min-height: 0;
+  height: auto;
+  aspect-ratio: 2 / 3;
+  object-fit: contain;
+}
+.card > .art.blank {
+  flex: 1 1 0; /* no picture: the tinted block takes the room a poster would */
+  aspect-ratio: auto;
+}
 .art.blank,
 .thumb.blank {
   background: linear-gradient(165deg, color-mix(in oklch, var(--tint) 70%, #000), color-mix(in oklch, var(--tint) 25%, #000));
 }
-/* Darkens the top for the pills and the bottom for the title, tinted with the poster's own colour. */
+/* A little shade at the very top, so the pills and the status bar read on a bright poster. */
 .scrim {
   position: absolute;
-  inset: 0;
-  background: linear-gradient(
-    to bottom,
-    rgb(0 0 0 / 0.5) 0%,
-    transparent 16%,
-    transparent 27%,
-    color-mix(in oklch, var(--tint) 42%, #050608) 58%,
-    #050608 100%
-  );
+  inset: 0 0 auto;
+  height: calc(var(--safe-t) + 72px);
+  background: linear-gradient(rgb(0 0 0 / 0.45), transparent);
+  pointer-events: none;
 }
+/* The caption. It keeps clear of the buttons on the right. */
 .info {
-  position: absolute;
-  left: 22px;
-  right: 22px;
-  bottom: calc(var(--chrome-b) + var(--rate-h) + 30px);
+  margin-top: auto;
+  padding: 14px calc(var(--rail-w) + 20px) 0 16px;
   display: grid;
-  gap: 8px;
+  gap: 6px;
+  justify-items: start;
 }
-/* Why this card is here. Shown only when the pick really came from your ratings. */
-.why {
-  justify-self: start;
+/* Why this card is here (shown only when the pick really came from your ratings), or that you scrolled past it. */
+.why,
+.passed {
   max-width: 100%;
-  padding: 6px 12px;
-  border-radius: 14px; /* a long reason wraps to two lines, so not a full pill */
-  background: color-mix(in oklch, var(--tint) 30%, rgb(12 13 16 / 0.86));
+  height: 26px;
+  padding: 0 11px;
+  border-radius: 999px;
   border: 1px solid rgb(255 255 255 / 0.14);
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 600;
-  line-height: 1.25;
+  line-height: 24px;
+  white-space: nowrap;
+}
+.why {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  background: color-mix(in oklch, var(--tint) 30%, #0d0f12);
+}
+.passed {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--surface-2);
+  color: var(--muted);
+}
+.info h2 {
+  font-size: clamp(22px, 6.4vw, 26px);
+  font-weight: 750;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  text-wrap: balance;
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   overflow: hidden;
+  padding-bottom: 0.06em; /* room for descenders inside the clamp */
 }
-.info h2 {
-  font-size: clamp(32px, 11vw, 44px);
-  font-weight: 750;
-  letter-spacing: -0.03em;
-  line-height: 1;
-  text-wrap: balance;
-  text-shadow: 0 1px 2px rgb(0 0 0 / 0.6), 0 0 24px rgb(0 0 0 / 0.45);
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-  overflow: hidden;
-  padding-bottom: 0.08em; /* room for descenders inside the clamp */
-}
-.sub {
+.meta {
   display: flex;
+  align-items: center;
   flex-wrap: wrap;
-  gap: 2px 12px;
+  gap: 4px 10px;
   color: #d3d6db;
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 500;
 }
-.pills {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 4px;
+/* A taste of the story, only where the screen is tall enough to spare the room (see the min-height rule below). */
+.blurb {
+  display: none;
+  color: var(--muted);
+  font-size: 13.5px;
+  line-height: 1.35;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+@media (min-height: 780px) {
+  .blurb {
+    display: -webkit-box;
+  }
+}
+/* A score, in its colour. */
+.score-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--s) 16%, #0d0f12);
+  border: 1px solid color-mix(in oklch, var(--s) 45%, transparent);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.score-pill b,
+.score[data-score] {
+  color: var(--s);
+  font-weight: 750;
+}
+.scores .score-pill {
+  height: 36px;
+  padding: 0 13px;
+  font-size: 14px;
 }
 
 /* ---- chrome over the card ---- */
@@ -323,54 +387,43 @@ button:disabled,
   grid-area: 1 / 1;
 }
 
-.rate-row {
+/* The buttons, in a column on the right like a short-video app. They act on the title on screen. */
+.acts {
   position: absolute;
-  left: 14px;
-  right: 14px;
+  right: 10px;
   bottom: calc(var(--chrome-b) + 12px);
-  height: var(--rate-h);
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-end;
-  pointer-events: none;
+  width: var(--rail-w);
+  display: grid;
+  gap: 12px;
+  justify-items: center;
+  pointer-events: none; /* only the buttons take touches: a swipe or tap between them still reaches the page */
 }
 .rate {
   pointer-events: auto;
   display: grid;
   justify-items: center;
-  gap: 6px;
-  flex: 1 1 0;
-  min-width: 0;
+  gap: 4px;
+  width: var(--rail-w);
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.01em;
-  text-shadow: 0 1px 2px rgb(0 0 0 / 0.7);
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.9), 0 0 8px rgb(0 0 0 / 0.7);
 }
 .disc {
-  position: relative;
   display: grid;
   place-items: center;
   width: var(--disc);
   height: var(--disc);
   border-radius: 999px;
-  overflow: hidden;
-  background: color-mix(in oklch, var(--tint) 18%, rgb(12 13 16 / 0.78));
-  border: 1px solid rgb(255 255 255 / 0.18);
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.16), 0 6px 18px rgb(0 0 0 / 0.35);
+  background: color-mix(in oklch, var(--tint) 18%, #0f1114);
+  border: 1px solid rgb(255 255 255 / 0.16);
+  box-shadow: 0 4px 14px rgb(0 0 0 / 0.4);
   color: var(--c);
-}
-.rate[data-rating="liked"] .disc {
-  width: var(--disc-big);
-  height: var(--disc-big);
 }
 /* The rating this title has: its disc fills with the rating's colour. */
 .rate[aria-pressed="true"] .disc {
   background: var(--c);
   border-color: transparent;
-  color: var(--ink);
-}
-.pill.icon[aria-pressed="true"] {
-  background: var(--c);
   color: var(--ink);
 }
 
@@ -437,7 +490,7 @@ button:disabled,
   display: grid;
   align-content: center;
   gap: 12px;
-  padding: 0 28px calc(var(--chrome-b) + var(--rate-h));
+  padding: 0 28px var(--chrome-b);
 }
 .deck-empty h2 {
   font-size: 32px;
@@ -709,9 +762,10 @@ button:disabled,
 /* ---- sheets (native dialog) ---- */
 .sheet-dialog {
   position: fixed;
-  inset: 0;
+  inset: 0 0 auto;
   width: 100%;
   height: 100%;
+  height: var(--app-h, 100%); /* same visible height as the app (main.jsx) */
   max-width: none;
   max-height: none;
   margin: 0;
@@ -798,6 +852,7 @@ button:disabled,
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
+  overflow-anchor: none; /* opening or closing a season must not move the page; Season in Sheets.jsx places it */
   touch-action: pan-y;
   display: flex;
   flex-direction: column;
@@ -1034,14 +1089,27 @@ button:disabled,
 /* Short screens: smaller buttons, two-line title, no genre line. */
 @media (max-height: 700px) {
   :root {
-    --disc: min(48px, 14vw);
-    --disc-big: min(56px, 17vw);
-    --rate-h: 80px;
+    --disc: 44px;
   }
-  .info h2 {
-    -webkit-line-clamp: 2;
+  .acts {
+    gap: 8px;
   }
-  .sub span + span {
+}
+/* Very short screens (phone on its side, heavy text zoom): the button labels go, and if the column still
+   does not fit between the top pills and the tab bar it scrolls instead of running off the top. */
+@media (max-height: 560px) {
+  .acts {
+    top: calc(var(--safe-t) + 60px);
+    gap: 6px;
+    align-content: safe end;
+    overflow-y: auto;
+    touch-action: pan-y;
+    scrollbar-width: none;
+  }
+  .acts::-webkit-scrollbar {
+    display: none;
+  }
+  .rate > span:last-child {
     display: none;
   }
 }
@@ -1057,21 +1125,27 @@ button:disabled,
   border-radius: var(--r);
   background: var(--surface-2);
 }
-.season summary {
+.season h4 {
+  margin: 0;
+  font: inherit;
+  /* The header stays at the top of the sheet while its episodes scroll under it. No overflow on .season, or this breaks. */
+  position: sticky;
+  top: -4px; /* the sheet's top padding: flush with its edge, so rows do not peek out above */
+  z-index: 1;
+}
+.season-head {
   display: flex;
   align-items: center;
   gap: 12px;
+  width: 100%;
   min-height: 56px;
   padding: 8px 16px;
   border-radius: var(--r);
-  cursor: pointer;
-  list-style: none;
+  background: var(--surface-2);
+  text-align: left;
   font-weight: 600;
 }
-.season summary::-webkit-details-marker {
-  display: none;
-}
-.season summary > span {
+.season-head > span {
   flex: 1;
   min-width: 0;
 }
@@ -1081,7 +1155,7 @@ button:disabled,
   font-size: 13px;
   font-weight: 400;
 }
-.season summary::after {
+.season-head::after {
   content: "";
   flex: none;
   width: 8px;
@@ -1091,7 +1165,10 @@ button:disabled,
   border-bottom: 2px solid var(--muted);
   transform: rotate(45deg);
 }
-.season[open] summary::after {
+div.season-head::after {
+  display: none; /* nothing to open */
+}
+.season-head[aria-expanded="true"]::after {
   margin: 4px 4px 0;
   transform: rotate(225deg);
 }
@@ -1110,6 +1187,11 @@ button:disabled,
 }
 .season li small {
   grid-column: 2;
+}
+.season li.more {
+  min-height: 1px;
+  padding: 0;
+  border: 0;
 }
 .ep-n {
   color: var(--muted);

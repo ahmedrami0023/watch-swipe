@@ -1,10 +1,11 @@
 // Bottom sheets: title details and deck filters. Built on the native <dialog> (focus trap, Escape, inert page).
 import { useEffect, useId, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { animate, motion, useDragControls, useMotionValue } from "motion/react";
 import { Play } from "@phosphor-icons/react";
-import { Poster } from "./Deck.jsx";
+import { Poster, ScorePill } from "./Deck.jsx";
 import { BUILT, CARDS, LOGOS } from "./cards.js";
-import { DECADES, FAV, GENRES, KINDS, NO_FILTERS, RATINGS, RATING_NAMES, SCORES, SERVICES, filterCount, imageUrl, matches, tmdbPage } from "./ratings.js";
+import { DECADES, FAV, GENRES, KINDS, NO_FILTERS, PICKS, RATINGS, SCORES, SERVICES, filterCount, imageUrl, matches, scoreTier, tmdbPage } from "./ratings.js";
 
 const BY_ID = new Map(CARDS.map((c) => [c.id, c]));
 
@@ -39,7 +40,8 @@ function Sheet({ title, onClose, children, footer }) {
     // The same goes when the opener already vanished behind the sheet (un-favourited from the Favorites list).
     requestAnimationFrame(() => {
       if ((action || document.activeElement === document.body) && !document.querySelector(".search"))
-        document.querySelector('.deck-empty h2, .rate-row button:not(:disabled), .page .chip[aria-pressed="true"]')?.focus();
+        // The buttons beside the title on screen; on the closing page (no title, no buttons) its heading.
+        (document.querySelector(".acts button") ?? document.querySelector('.deck-empty h2, .page .chip[aria-pressed="true"]'))?.focus();
     });
   };
   const close = (action) => {
@@ -99,6 +101,7 @@ function Sheet({ title, onClose, children, footer }) {
       ref={dialog}
       aria-labelledby={titleId}
       onCancel={(e) => {
+        if (e.target !== e.currentTarget) return; // Escape in the photo viewer closes only the viewer
         e.preventDefault(); // Escape: play the exit first
         close();
       }}
@@ -204,10 +207,81 @@ function upNext(data, today) {
   return `No date yet for the next episode (checked ${day(data.built)}).`;
 }
 
+// One season: a header button that opens its episode list. Built by hand, not with <details>, which misbehaves
+// on iPhone. The header sticks to the top while you scroll a long season, so it can be closed from anywhere,
+// and a long season draws its rows in batches, so opening one is instant (some have over a thousand episodes).
+function Season({ s, today }) {
+  const [open, setOpen] = useState(false);
+  const [shown, setShown] = useState(60);
+  const box = useRef(null);
+  const more = useRef(null);
+  const id = useId();
+  useEffect(() => {
+    if (!open || shown >= s.eps.length) return;
+    const watcher = new IntersectionObserver(([entry]) => entry.isIntersecting && setShown((n) => n + 120), {
+      root: box.current.closest(".sheet-body"),
+      rootMargin: "1000px 0px",
+    });
+    watcher.observe(more.current);
+    return () => watcher.disconnect();
+  }, [open, shown, s.eps.length]);
+  const toggle = () => {
+    if (!open) return setOpen(true);
+    // Closing: the header stays where it is on screen. If it was stuck to the top (you were deep in the list),
+    // the season's top is brought there instead, so the page does not jump somewhere unrelated.
+    const body = box.current.closest(".sheet-body");
+    const offset = () => box.current.getBoundingClientRect().top - body.getBoundingClientRect().top;
+    const before = offset();
+    flushSync(() => {
+      setOpen(false);
+      setShown(60);
+    });
+    const after = offset();
+    body.scrollTop += before < 0 ? after : after - before;
+  };
+  const none = s.eps.length === 0; // announced but nothing listed yet: a plain line, not a button that opens nothing
+  const Head = none ? "div" : "button";
+  return (
+    <div className="season" ref={box}>
+      <h4>
+        <Head className="season-head" {...(!none && { "aria-expanded": open, "aria-controls": id, onClick: toggle })}>
+          <span>
+            Season {s.n}
+            {s.name && `: ${s.name}`}
+            <small>
+              {[s.date ? (s.date > today ? `Starts ${day(s.date)}` : s.date.slice(0, 4)) : "No date yet", `${s.eps.length} episode${s.eps.length === 1 ? "" : "s"}`].join(" · ")}
+            </small>
+          </span>
+          {s.rating != null && (
+            <b className="score" data-score={scoreTier(s.rating)}>
+              {s.rating.toFixed(1)}
+            </b>
+          )}
+        </Head>
+      </h4>
+      <ol id={id} hidden={!open || none}>
+        {open &&
+          s.eps.slice(0, shown).map(([n, name, date, rating]) => (
+            <li key={n}>
+              <span className="ep-n">{n}</span>
+              <span>{name || `Episode ${n}`}</span>
+              {rating != null && (
+                <b className="score" data-score={scoreTier(rating)}>
+                  {rating.toFixed(1)}
+                </b>
+              )}
+              <small>{date ? (date > today ? `Coming ${day(date)}` : day(date)) : "No date yet"}</small>
+            </li>
+          ))}
+        {open && shown < s.eps.length && <li className="more" ref={more} aria-hidden="true" />}
+      </ol>
+    </div>
+  );
+}
+
 // Seasons and episodes for a show: one small file per show, fetched when its details open.
 function Episodes({ id }) {
   const [data, setData] = useState(null); // null while loading, false if it could not be read
-  const [open, setOpen] = useState(() => new Set()); // episode rows are only built for seasons that are open
   useEffect(() => {
     let live = true;
     fetch(`${import.meta.env.BASE_URL}episodes/${id}.json`)
@@ -235,42 +309,7 @@ function Episodes({ id }) {
       </p>
       {next && <p className="summary">{next}</p>}
       {data.seasons.map((s) => (
-        <details
-          key={s.n}
-          className="season"
-          onToggle={(e) => {
-            const on = e.currentTarget.open; // read now: React clears the event before the updater runs
-            setOpen((was) => {
-              const now = new Set(was);
-              if (on) now.add(s.n);
-              else now.delete(s.n);
-              return now;
-            });
-          }}
-        >
-          <summary>
-            <span>
-              Season {s.n}
-              {s.name && `: ${s.name}`}
-              <small>
-                {[s.date ? (s.date > today ? `Starts ${day(s.date)}` : s.date.slice(0, 4)) : "No date yet", `${s.eps.length} episode${s.eps.length === 1 ? "" : "s"}`].join(" · ")}
-              </small>
-            </span>
-            {s.rating != null && <b className="score">{s.rating.toFixed(1)}</b>}
-          </summary>
-          {open.has(s.n) && (
-            <ol>
-              {s.eps.map(([n, name, date, rating]) => (
-                <li key={n}>
-                  <span className="ep-n">{n}</span>
-                  <span>{name || `Episode ${n}`}</span>
-                  {rating != null && <b className="score">{rating.toFixed(1)}</b>}
-                  <small>{date ? (date > today ? `Coming ${day(date)}` : day(date)) : "No date yet"}</small>
-                </li>
-              ))}
-            </ol>
-          )}
-        </details>
+        <Season key={s.n} s={s} today={today} />
       ))}
       <p className="quiet small">Scores are TMDB user ratings. Checked {day(data.built)}.</p>
     </>
@@ -305,15 +344,14 @@ export function Details({ card, rating, fav, onPick, onFav, onRemove, onOpen, on
           )}
           {card.rating != null && (
             <p className="scores">
-              <span className="pill solid stat">
-                TMDB <b>{card.rating.toFixed(1)}</b>
-              </span>
+              <ScorePill value={card.rating} />
             </p>
           )}
 
           <h3>{rating ? "Your rating" : "Rate it"}</h3>
           <div className="chips wrap">
-            {RATING_NAMES.map((name) => {
+            {/* "Not sure" is only offered while this title still has it, from before that button went away. */}
+            {[...PICKS, ...(rating === "unsure" ? ["unsure"] : [])].map((name) => {
               const { Icon, short, label, solid } = RATINGS[name];
               return (
                 <button
@@ -321,7 +359,7 @@ export function Details({ card, rating, fav, onPick, onFav, onRemove, onOpen, on
                   className="chip"
                   data-rating={name}
                   aria-pressed={rating === name}
-                  aria-label={`${short}: ${label}`}
+                  aria-label={short === label ? label : `${short}: ${label}`}
                   onClick={() => close(rating !== name ? () => onPick(card.id, name) : undefined)}
                 >
                   <Icon size={18} weight={rating === name ? solid : "bold"} aria-hidden="true" />

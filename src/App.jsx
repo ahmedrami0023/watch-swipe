@@ -22,6 +22,13 @@ function reducer(state, action) {
     case "rate":
       if (!BY_ID.has(action.id) || has(action.id)) return state;
       return { swipes: [...state.swipes, { id: action.id, rating: action.rating, at: action.at }], note: `${title(action.id)}: ${RATINGS[action.rating].label}` };
+    case "pass": {
+      // Scrolled past without rating: not interested. Marked auto so these can be told apart from a tap later,
+      // and not announced (it would speak on every scroll).
+      const fresh = action.ids.filter((id) => BY_ID.has(id) && !has(id));
+      if (!fresh.length) return state;
+      return { ...state, swipes: [...state.swipes, ...fresh.map((id) => ({ id, rating: "pass", auto: true, at: action.at }))] };
+    }
     case "set": // change a rating
       if (!has(action.id)) return state;
       return {
@@ -97,16 +104,21 @@ export default function App() {
   const unrated = useMemo(() => CARDS.filter((c) => !rated.has(c.id)), [rated]);
   const open = useMemo(() => unrated.filter((c) => matches(c, filters)), [unrated, filters]); // what the feed may still show
 
-  // The feed: the titles shown so far this session, in order, plus the next few. Scrolling past a title does not
-  // rate it, and a rated one stays where it is so you can scroll back and change your mind.
+  // The feed: the titles shown so far this session, in order, plus the next few. Scrolling past a title marks it
+  // "not interested"; every title stays where it is so you can scroll back and change your mind.
   // It learns: after each rating, everything beyond the page after the one on screen is picked again from your ratings.
   const [feed, setFeed] = useState([]);
   const [at, setAt] = useState(0); // which page is on screen
   const [run, setRun] = useState(0); // bumped to start the feed over (filters, import, erase, "Start over")
   const whys = useRef(new Map()); // the one-line reason for each card, kept from the moment it was picked
+  // The furthest page reached. Everything up to the page after it is fixed; only what lies beyond is re-picked.
+  // (Measured from the page on screen instead, scrolling back up would swap out the pages below, and scrolling
+  // down again would then mark those new titles "not interested".)
+  const furthest = useRef(0);
   useEffect(() => {
+    furthest.current = Math.max(furthest.current, at);
     setFeed((was) => {
-      const keep = was.slice(0, at + 2);
+      const keep = was.slice(0, furthest.current + 2);
       const taken = new Set(keep);
       const pool = open.filter((c) => !taken.has(c.id));
       // Unrated titles just shown count toward the variety rules (rated ones already do).
@@ -118,6 +130,7 @@ export default function App() {
     });
   }, [swipes, rated, open, at, run]);
   const restart = () => {
+    furthest.current = 0;
     setFeed([]);
     setAt(0);
     setRun((r) => r + 1);
@@ -138,6 +151,7 @@ export default function App() {
     dispatch(had ? { type: "set", id, rating } : { type: "rate", rating, id, at: Date.now() });
     return true;
   };
+  const pass = useCallback((ids) => dispatch({ type: "pass", ids, at: Date.now() }), []);
   const favorite = useCallback((id, point) => {
     dispatch({ type: "fav", id, at: Date.now() });
     if (point) setBurst({ ...point, key: Date.now() });
@@ -199,13 +213,13 @@ export default function App() {
                 filters={filterCount(filters)}
                 onAt={setAt}
                 onRate={rate}
+                onPass={pass}
                 onDetails={setDetails}
                 onFav={favorite}
                 onTint={onTint}
                 onFilters={() => setFiltersOpen(true)}
                 onClearFilters={() => applyFilters(NO_FILTERS)}
                 onLists={() => setTab("lists")}
-                onRestart={restart}
               />
             )}
             {tab === "lists" && <Lists swipes={swipes} onOpen={setDetails} />}

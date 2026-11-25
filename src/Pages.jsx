@@ -4,9 +4,9 @@ import { AnimatePresence, motion } from "motion/react";
 import { Poster } from "./Deck.jsx";
 import { BUILT, CARDS } from "./cards.js";
 import { MagnifyingGlass } from "@phosphor-icons/react";
-import { BY_ID, FAV, RATINGS, RATING_NAMES, clean, search } from "./ratings.js";
+import { BY_ID, FAV, RAIL, RATINGS, RATING_NAMES, clean, search } from "./ratings.js";
 
-const LIST_ORDER = ["fav", "want", "liked", "disliked", "unsure", "pass"];
+const LIST_ORDER = ["fav", "want", "liked", "disliked", "pass", "unsure"];
 const inList = (s, list) => (list === "fav" ? s.fav === true : s.rating === list);
 
 // One title in a list: poster, name, and small marks for its rating and favourite.
@@ -34,18 +34,21 @@ const EMPTY = {
   want: "Nothing saved yet. Tap Want on something.",
   liked: "Tap Liked on something you enjoyed.",
   disliked: "Tap Disliked on ones that missed.",
-  unsure: "Tap Not sure when you can't decide.",
-  pass: "Tap Pass to drop a title.",
+  unsure: "Nothing here.",
+  pass: "Titles you scroll past land here. Open one and rate it to change that.",
 };
 
 export function Lists({ swipes, onOpen }) {
-  const [which, setWhich] = useState("want");
+  const [picked, setWhich] = useState("want");
+  // "Not sure" has no button any more, so its list goes away once it is empty: fall back to Want then.
+  const which = picked === "unsure" && !swipes.some((s) => s.rating === "unsure") ? "want" : picked;
   const rows = swipes.filter((s) => inList(s, which)).sort((a, b) => b.at - a.at);
   return (
     <section className="page">
       <h1>Lists</h1>
       <div className="chips scroll" role="group" aria-label="Pick a list">
-        {LIST_ORDER.map((name) => (
+        {/* "Not sure" has no button any more; its list only shows while it still holds something. */}
+        {LIST_ORDER.filter((name) => name !== "unsure" || swipes.some((s) => s.rating === "unsure")).map((name) => (
           <button key={name} className="chip" data-rating={name} aria-pressed={which === name} onClick={() => setWhich(name)}>
             {(RATINGS[name] ?? FAV).list} <b>{swipes.filter((s) => inList(s, name)).length}</b>
           </button>
@@ -121,6 +124,8 @@ export function You({ swipes, onImport, onReset }) {
   const file = useRef(null);
   const confirm = useRef(null);
   const counts = Object.fromEntries(RATING_NAMES.map((r) => [r, swipes.filter((s) => s.rating === r).length]));
+  const names = RATING_NAMES.filter((r) => r !== "unsure" || counts.unsure); // "Not sure" only while some are saved
+  const tapped = swipes.filter((s) => !s.auto).length; // ratings given by hand, not by scrolling past
 
   // Genres from titles you liked or want, most common first.
   const tally = {};
@@ -177,17 +182,17 @@ export function You({ swipes, onImport, onReset }) {
 
       <div className="panel">
         <h2>Your taste</h2>
-        {swipes.length < 10 ? (
-          <p className="quiet">Rate 10 titles to see your taste. You're at {swipes.length}.</p>
+        {tapped < 10 ? (
+          <p className="quiet">Rate 10 titles to see your taste. You're at {tapped}.</p>
         ) : (
           <>
-            <div className="bar" role="img" aria-label={RATING_NAMES.map((r) => `${RATINGS[r].list} ${counts[r]}`).join(", ")}>
-              {RATING_NAMES.filter((r) => counts[r]).map((r) => (
+            <div className="bar" role="img" aria-label={names.map((r) => `${RATINGS[r].list} ${counts[r]}`).join(", ")}>
+              {names.filter((r) => counts[r]).map((r) => (
                 <span key={r} data-rating={r} style={{ flexGrow: counts[r] }} />
               ))}
             </div>
             <ul className="legend">
-              {RATING_NAMES.map((r) => {
+              {names.map((r) => {
                 const { Icon, list, solid } = RATINGS[r];
                 return (
                   <li key={r} data-rating={r}>
@@ -205,7 +210,7 @@ export function You({ swipes, onImport, onReset }) {
           </>
         )}
         <p className="quiet">
-          Rated {swipes.length} of {CARDS.length}. The deck starts with a broad mix to learn your taste, then narrows step by step as you rate more, and
+          Seen {swipes.length} of {CARDS.length}, rated {tapped}. The feed starts with a broad mix to learn your taste, then narrows step by step, and
           keeps mixing in things you have not tried.
         </p>
       </div>
@@ -213,12 +218,12 @@ export function You({ swipes, onImport, onReset }) {
       <div className="panel">
         <h2>How it works</h2>
         <ul className="how">
-          <li>
-            <span className="dotless" aria-hidden="true" />
-            <b>Scroll</b>
-            <span>Next title. Scrolling past does not rate it</span>
+          <li data-rating="pass">
+            <RATINGS.pass.Icon size={18} weight="bold" aria-hidden="true" />
+            <b>Scroll past</b>
+            <span>Not interested. It won't come back</span>
           </li>
-          {RATING_NAMES.map((r) => {
+          {RAIL.map((r) => {
             const { Icon, short, label, solid } = RATINGS[r];
             return (
               <li key={r} data-rating={r}>

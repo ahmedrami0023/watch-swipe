@@ -11,7 +11,7 @@ export const FILTER_STORE = "watch-swipe:filters";
 // solid = the icon weight to use on a filled background (X has no true fill style).
 // Each rating keeps one colour (see styles.css), and one icon, so colour is never the only cue.
 export const RATINGS = {
-  pass: { label: "Not interested", short: "Pass", list: "Passed", Icon: X, solid: "bold" },
+  pass: { label: "Not interested", short: "Not interested", list: "Not interested", Icon: X, solid: "bold" },
   disliked: { label: "Seen it, didn't like it", short: "Disliked", list: "Disliked", Icon: ThumbsDown, solid: "fill" },
   liked: { label: "Seen it, liked it", short: "Liked", list: "Liked", Icon: Star, solid: "fill" },
   unsure: { label: "Haven't seen it, not sure", short: "Not sure", list: "Not sure", Icon: Question, solid: "fill" },
@@ -20,16 +20,26 @@ export const RATINGS = {
 // A favourite is a flag on top of a rating, not a sixth rating: the heart. (Want is the bookmark.)
 export const FAV = { label: "Favorite", list: "Favorites", Icon: Heart };
 export const RATING_NAMES = Object.keys(RATINGS);
+// The feed's buttons. "Not interested" has no button there: scrolling past a title says it.
+// "Not sure" has no button anywhere any more; ratings saved with it are kept and still shown.
+export const RAIL = ["liked", "disliked", "want"];
+export const PICKS = ["want", "liked", "disliked", "pass"]; // the choices on the details page
+
+// TMDB scores are coloured in five steps, red to green (styles.css: --score-1 to --score-5).
+// Most of the catalogue sits between 6 and 8.7, so the steps are packed there.
+export const scoreTier = (n) => (n >= 8.3 ? 5 : n >= 7.7 ? 4 : n >= 7 ? 3 : n >= 6 ? 2 : 1);
+export const SCORE_WORDS = { 1: "poor", 2: "mixed", 3: "decent", 4: "good", 5: "great" };
 export const BY_ID = new Map(CARDS.map((c) => [c.id, c]));
 
 // Saved or imported swipes are untrusted input: keep only known cards and ratings, one entry per card.
+// auto marks a "not interested" that came from scrolling past, not from a tap.
 // Ids from the old 20-title sample deck are translated to the same titles in the real catalogue.
 export function clean(raw) {
   if (!Array.isArray(raw)) return [];
   const known = new Set(BY_ID.keys());
   return raw
     .filter((s) => s && typeof s === "object" && Object.hasOwn(RATINGS, s.rating))
-    .map((s) => ({ id: (Object.hasOwn(LEGACY_IDS, s.id) && LEGACY_IDS[s.id]) || s.id, rating: s.rating, at: Number.isFinite(s.at) ? s.at : 0, ...(s.fav === true && s.rating === "liked" && { fav: true }) }))
+    .map((s) => ({ id: (Object.hasOwn(LEGACY_IDS, s.id) && LEGACY_IDS[s.id]) || s.id, rating: s.rating, at: Number.isFinite(s.at) ? s.at : 0, ...(s.fav === true && s.rating === "liked" && { fav: true }), ...(s.auto === true && s.rating === "pass" && { auto: true }) }))
     .filter((s) => known.delete(s.id));
 }
 
