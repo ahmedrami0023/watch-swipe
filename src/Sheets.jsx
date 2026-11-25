@@ -181,6 +181,102 @@ function Viewer({ photos, start, title, onClose }) {
   );
 }
 
+const day = (iso) => {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+};
+
+// What comes next for a show, worked out today from the air dates in its file (so it stays right between rebuilds
+// for everything that was already scheduled).
+function upNext(data, today) {
+  const ahead = data.seasons
+    .flatMap((s) => s.eps.map(([n, name, date]) => ({ s: s.n, n, name, date })))
+    .filter((e) => e.date && e.date >= today)
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))[0];
+  if (ahead) {
+    const when = ahead.date === today ? "today" : day(ahead.date);
+    if (ahead.n === 1) return `Season ${ahead.s} starts ${when}.`;
+    return `Next episode: season ${ahead.s}, episode ${ahead.n}, ${when}.`;
+  }
+  const season = data.seasons.find((s) => s.date && s.date >= today);
+  if (season) return `Season ${season.n} starts ${day(season.date)}.`;
+  if (data.status === "Ended" || data.status === "Canceled") return null;
+  return `No date yet for the next episode (checked ${day(data.built)}).`;
+}
+
+// Seasons and episodes for a show: one small file per show, fetched when its details open.
+function Episodes({ id }) {
+  const [data, setData] = useState(null); // null while loading, false if it could not be read
+  const [open, setOpen] = useState(() => new Set()); // episode rows are only built for seasons that are open
+  useEffect(() => {
+    let live = true;
+    fetch(`${import.meta.env.BASE_URL}episodes/${id}.json`)
+      .then((res) => (res.ok ? res.json() : Promise.reject()))
+      .then(
+        (d) => live && setData(d),
+        () => live && setData(false),
+      );
+    return () => {
+      live = false;
+    };
+  }, [id]);
+
+  if (data === null) return <p className="quiet" role="status">Loading episodes…</p>;
+  if (!data || !Array.isArray(data.seasons)) return <p className="quiet" role="status">Episodes could not be loaded. Check the connection and open this again.</p>;
+  const today = new Date().toLocaleDateString("en-CA");
+  const state = data.status === "Ended" ? "Finished" : data.status === "Canceled" ? "Cancelled" : "Ongoing";
+  const next = upNext(data, today);
+  return (
+    <>
+      <p className="scores">
+        <span className="pill solid stat">
+          <b>{state}</b>
+        </span>
+      </p>
+      {next && <p className="summary">{next}</p>}
+      {data.seasons.map((s) => (
+        <details
+          key={s.n}
+          className="season"
+          onToggle={(e) => {
+            const on = e.currentTarget.open; // read now: React clears the event before the updater runs
+            setOpen((was) => {
+              const now = new Set(was);
+              if (on) now.add(s.n);
+              else now.delete(s.n);
+              return now;
+            });
+          }}
+        >
+          <summary>
+            <span>
+              Season {s.n}
+              {s.name && `: ${s.name}`}
+              <small>
+                {[s.date ? (s.date > today ? `Starts ${day(s.date)}` : s.date.slice(0, 4)) : "No date yet", `${s.eps.length} episode${s.eps.length === 1 ? "" : "s"}`].join(" · ")}
+              </small>
+            </span>
+            {s.rating != null && <b className="score">{s.rating.toFixed(1)}</b>}
+          </summary>
+          {open.has(s.n) && (
+            <ol>
+              {s.eps.map(([n, name, date, rating]) => (
+                <li key={n}>
+                  <span className="ep-n">{n}</span>
+                  <span>{name || `Episode ${n}`}</span>
+                  {rating != null && <b className="score">{rating.toFixed(1)}</b>}
+                  <small>{date ? (date > today ? `Coming ${day(date)}` : day(date)) : "No date yet"}</small>
+                </li>
+              ))}
+            </ol>
+          )}
+        </details>
+      ))}
+      <p className="quiet small">Scores are TMDB user ratings. Checked {day(data.built)}.</p>
+    </>
+  );
+}
+
 export function Details({ card, rating, fav, onPick, onFav, onRemove, onOpen, onClose }) {
   const [zoom, setZoom] = useState(null); // which photo is open full screen
   const photos = [card.backdrop, ...(card.shots ?? [])].filter(Boolean);
@@ -282,6 +378,12 @@ export function Details({ card, rating, fav, onPick, onFav, onRemove, onOpen, on
             <>
               <h3>Cast</h3>
               <p className="summary">{card.cast.join(", ")}</p>
+            </>
+          )}
+          {card.id.startsWith("t-") && (
+            <>
+              <h3>Seasons and episodes</h3>
+              <Episodes key={card.id} id={card.id} />
             </>
           )}
           <h3>Streaming in the US</h3>

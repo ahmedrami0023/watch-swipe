@@ -1062,3 +1062,74 @@ button:disabled,
     transition: none !important;
   }
 }
+
+/* ---- seasons and episodes (details sheet) ---- */
+.season {
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--surface-2);
+}
+.season summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 56px;
+  padding: 8px 16px;
+  border-radius: var(--r);
+  cursor: pointer;
+  list-style: none;
+  font-weight: 600;
+}
+.season summary::-webkit-details-marker {
+  display: none;
+}
+.season summary > span {
+  flex: 1;
+  min-width: 0;
+}
+.season small {
+  display: block;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 400;
+}
+.season summary::after {
+  content: "";
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin: 0 4px 4px;
+  border-right: 2px solid var(--muted);
+  border-bottom: 2px solid var(--muted);
+  transform: rotate(45deg);
+}
+.season[open] summary::after {
+  margin: 4px 4px 0;
+  transform: rotate(225deg);
+}
+.season ol {
+  list-style: none;
+  margin: 0;
+  padding: 0 16px 6px;
+}
+.season li {
+  display: grid;
+  grid-template-columns: 2.4em 1fr auto;
+  gap: 2px 8px;
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+  font-size: 15px;
+}
+.season li small {
+  grid-column: 2;
+}
+.ep-n {
+  color: var(--muted);
+}
+.ep-n,
+.score {
+  font-variant-numeric: tabular-nums;
+}
+.quiet.small {
+  font-size: 13px;
+}
