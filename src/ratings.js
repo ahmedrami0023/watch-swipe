@@ -7,33 +7,20 @@ export { decadeOf, kindOf };
 
 export const STORE = "watch-swipe:v2"; // saves the rating, not the gesture
 export const FILTER_STORE = "watch-swipe:filters";
-export const THRESHOLD = 90; // px of travel that commits a swipe
-export const FLICK = 600; // px/s that commits a short, fast swipe
-export const DOUBLE_TAP = 320; // ms between two taps that count as a double-tap
 
-// Left/right handle titles you haven't seen (the common case); double-tap is the usual "like".
 // solid = the icon weight to use on a filled background (X has no true fill style).
-// Each rating keeps one colour (see styles.css), one icon and one direction, so colour is never the only cue.
+// Each rating keeps one colour (see styles.css), and one icon, so colour is never the only cue.
 export const RATINGS = {
-  pass: { label: "Not interested", short: "Pass", list: "Passed", swipe: "left", key: "ArrowLeft", Icon: X, solid: "bold" },
-  disliked: { label: "Seen it, didn't like it", short: "Disliked", list: "Disliked", swipe: "down", key: "ArrowDown", Icon: ThumbsDown, solid: "fill" },
-  liked: { label: "Seen it, liked it", short: "Liked", list: "Liked", swipe: null, key: "l", Icon: Star, solid: "fill" },
-  unsure: { label: "Haven't seen it, not sure", short: "Not sure", list: "Not sure", swipe: "up", key: "ArrowUp", Icon: Question, solid: "fill" },
-  want: { label: "Want to watch", short: "Want", list: "Want", swipe: "right", key: "ArrowRight", Icon: BookmarkSimple, solid: "fill" },
+  pass: { label: "Not interested", short: "Pass", list: "Passed", Icon: X, solid: "bold" },
+  disliked: { label: "Seen it, didn't like it", short: "Disliked", list: "Disliked", Icon: ThumbsDown, solid: "fill" },
+  liked: { label: "Seen it, liked it", short: "Liked", list: "Liked", Icon: Star, solid: "fill" },
+  unsure: { label: "Haven't seen it, not sure", short: "Not sure", list: "Not sure", Icon: Question, solid: "fill" },
+  want: { label: "Want to watch", short: "Want", list: "Want", Icon: BookmarkSimple, solid: "fill" },
 };
 // A favourite is a flag on top of a rating, not a sixth rating: the heart. (Want is the bookmark.)
 export const FAV = { label: "Favorite", list: "Favorites", Icon: Heart };
 export const RATING_NAMES = Object.keys(RATINGS);
-export const BY_SWIPE = Object.fromEntries(RATING_NAMES.filter((r) => RATINGS[r].swipe).map((r) => [RATINGS[r].swipe, r]));
 export const BY_ID = new Map(CARDS.map((c) => [c.id, c]));
-
-// How far (0 to 1) a drag of dx,dy has gone toward committing `dir`. Only the dominant axis counts.
-export function progress(dir, dx, dy) {
-  const horizontal = Math.abs(dx) > Math.abs(dy);
-  if ((dir === "left" || dir === "right") !== horizontal) return 0;
-  const pull = dir === "right" ? dx : dir === "left" ? -dx : dir === "down" ? dy : -dy;
-  return Math.min(Math.max(pull / THRESHOLD, 0), 1);
-}
 
 // Saved or imported swipes are untrusted input: keep only known cards and ratings, one entry per card.
 // Ids from the old 20-title sample deck are translated to the same titles in the real catalogue.

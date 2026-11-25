@@ -31,11 +31,11 @@ function TitleRow({ card, rating, fav, onOpen }) {
 
 const EMPTY = {
   fav: "No favorites yet. Tap the heart on a title you love.",
-  want: "Nothing saved yet. Swipe right on something.",
-  liked: "Double-tap a poster you loved.",
-  disliked: "Swipe down on ones that missed.",
-  unsure: "Swipe up when you can't decide.",
-  pass: "Swipe left to skip a title.",
+  want: "Nothing saved yet. Tap Want on something.",
+  liked: "Tap Liked on something you enjoyed.",
+  disliked: "Tap Disliked on ones that missed.",
+  unsure: "Tap Not sure when you can't decide.",
+  pass: "Tap Pass to drop a title.",
 };
 
 export function Lists({ swipes, onOpen }) {
@@ -115,14 +115,6 @@ export function Search({ swipes, onOpen }) {
     </section>
   );
 }
-
-const HOW = [
-  ["Swipe right", "want"],
-  ["Swipe left", "pass"],
-  ["Swipe up", "unsure"],
-  ["Swipe down", "disliked"],
-  ["Double-tap", "liked"],
-];
 
 export function You({ swipes, onImport, onReset }) {
   const [message, setMessage] = useState("");
@@ -219,15 +211,20 @@ export function You({ swipes, onImport, onReset }) {
       </div>
 
       <div className="panel">
-        <h2>How to swipe</h2>
+        <h2>How it works</h2>
         <ul className="how">
-          {HOW.map(([gesture, r]) => {
-            const { Icon, label, solid } = RATINGS[r];
+          <li>
+            <span className="dotless" aria-hidden="true" />
+            <b>Scroll</b>
+            <span>Next title. Scrolling past does not rate it</span>
+          </li>
+          {RATING_NAMES.map((r) => {
+            const { Icon, short, label, solid } = RATINGS[r];
             return (
               <li key={r} data-rating={r}>
                 <Icon size={18} weight={solid} aria-hidden="true" />
-                <b>{gesture}</b>
-                <span>{label}</span>
+                <b>{short}</b>
+                <span>{label}. Tap again to undo</span>
               </li>
             );
           })}

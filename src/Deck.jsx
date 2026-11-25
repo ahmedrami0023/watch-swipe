@@ -1,16 +1,8 @@
-// The swipe screen: full-screen poster cards, the five rating buttons and the top pills.
-import { useEffect, useRef, useState } from "react";
-import {
-  AnimatePresence,
-  motion,
-  useIsPresent,
-  useMotionValue,
-  useMotionValueEvent,
-  usePresenceData,
-  useTransform,
-} from "motion/react";
-import { ArrowCounterClockwise, SlidersHorizontal } from "@phosphor-icons/react";
-import { BY_SWIPE, DOUBLE_TAP, FAV, FLICK, RATINGS, RATING_NAMES, THRESHOLD, imageUrl, progress, rawTint, sample } from "./ratings.js";
+// The feed: one full-screen title per page, scrolled like short videos. The five buttons rate the title on screen.
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { AnimatePresence, motion } from "motion/react";
+import { SlidersHorizontal } from "@phosphor-icons/react";
+import { FAV, RATINGS, RATING_NAMES, imageUrl, rawTint, sample } from "./ratings.js";
 
 // Poster image. crossOrigin lets us read its colour; a broken link falls back to a tinted block.
 export function Poster({ card, path = card.poster, size = "w780", className, alt = "", onTint }) {
@@ -38,9 +30,15 @@ export function Poster({ card, path = card.poster, size = "w780", className, alt
   );
 }
 
-function CardFace({ card, why, onTint, onDetails, onFav, children }) {
+// One title, filling the screen. Tapping the picture opens its details (the Details pill does the same for keyboards).
+function Slide({ card, why, raw, fav, onTint, onDetails, onFav }) {
   return (
-    <>
+    <article
+      className="card tinted"
+      aria-label={`${card.title}, ${card.type}, ${card.year}`}
+      style={{ "--raw": raw }}
+      onClick={(e) => !e.target.closest("button") && onDetails(card.id)}
+    >
       <Poster card={card} className="art" onTint={onTint} />
       <div className="scrim" />
       <div className="info">
@@ -58,209 +56,70 @@ function CardFace({ card, why, onTint, onDetails, onFav, children }) {
               TMDB <b>{card.rating.toFixed(1)}</b>
             </span>
           )}
-          {onDetails && (
-            <button className="pill solid" onClick={() => onDetails(card.id)}>
-              Details
-            </button>
-          )}
-          {onFav && (
-            <button
-              className="pill solid icon"
-              data-rating="fav"
-              aria-label="Favorite: seen it and loved it"
-              onClick={(e) => {
-                // A keyboard press has no pointer position: burst from the button, then park focus (this button is about to leave).
-                const box = e.currentTarget.getBoundingClientRect();
-                const byKeyboard = e.detail === 0;
-                onFav(card.id, byKeyboard ? { x: box.x + box.width / 2, y: box.y + box.height / 2 } : { x: e.clientX, y: e.clientY });
-                if (byKeyboard) requestAnimationFrame(() => document.querySelector(".rate-row button:not(:disabled), .deck-empty h2")?.focus());
-              }}
-            >
-              <FAV.Icon size={20} weight="bold" aria-hidden="true" />
-            </button>
-          )}
+          <button className="pill solid" onClick={() => onDetails(card.id)}>
+            Details
+          </button>
+          <button
+            className="pill solid icon"
+            data-rating="fav"
+            aria-pressed={fav}
+            aria-label="Favorite: seen it and loved it"
+            onClick={(e) => {
+              // A keyboard press has no pointer position: burst from the button.
+              const box = e.currentTarget.getBoundingClientRect();
+              const point = e.detail === 0 ? { x: box.x + box.width / 2, y: box.y + box.height / 2 } : { x: e.clientX, y: e.clientY };
+              onFav(card.id, fav ? null : point);
+            }}
+          >
+            <FAV.Icon size={20} weight={fav ? "fill" : "bold"} aria-hidden="true" />
+          </button>
         </div>
       </div>
-      {children}
-    </>
+    </article>
   );
 }
 
-// Where a card ends up for each rating. Also where it flies back in from on Undo.
-function awayPose(rating) {
-  const w = window.innerWidth * 1.4;
-  const h = window.innerHeight * 1.2;
-  return { want: { x: w }, pass: { x: -w }, unsure: { y: -h, scale: 0.9 }, disliked: { y: h }, liked: { scale: 1.12 } }[rating];
-}
-const SWIPE_SPRING = { want: 0.32, pass: 0.32, unsure: 0.4, disliked: 0.28 }; // seconds; up floats, down drops
-
-const cardVariants = {
-  // x, y and opacity are named so a card whose exit is cut short by Undo animates back to rest.
-  center: ({ undo }) => ({
-    scale: 1,
-    x: 0,
-    y: 0,
-    opacity: 1,
-    transition: { type: "spring", bounce: undo ? 0.25 : 0.15, visualDuration: undo ? 0.45 : 0.35 },
-  }),
-  exit: ({ rating }) => {
-    // Not rated (Undo, filters, reset): step back into the stack instead of flying off.
-    if (!rating) return { scale: 0.94, opacity: 0, transition: { duration: 0.2 } };
-    if (rating === "liked") return { ...awayPose(rating), opacity: 0, transition: { duration: 0.3, ease: "easeOut" } };
-    // A spring picks up the finger's release speed, so a flick keeps its momentum.
-    return {
-      ...awayPose(rating),
-      opacity: 0,
-      transition: { default: { type: "spring", bounce: 0, visualDuration: SWIPE_SPRING[rating] }, opacity: { duration: 0.28, ease: "easeIn" } },
-    };
-  },
-};
-
-function SwipeCard({ card, why, raw, shared, pull, enterFrom, reduce, onRate, onDetails, onFav, onTint }) {
-  const isPresent = useIsPresent();
-  const leaving = usePresenceData(); // { rating } once this card is on its way out
-  const x = useMotionValue(0);
-  const y = useMotionValue(0);
-  const rotate = useTransform(x, [-240, 240], reduce ? [0, 0] : [-12, 12]);
-  const lastTap = useRef(0);
-  const single = useRef(0); // timer that turns a lone tap into "open details"
-  const travel = useRef(0); // how far the finger moved during this press
-  useEffect(() => () => clearTimeout(single.current), []);
-  // Once the card is on its way out, a pending single tap must not open its details.
-  useEffect(() => {
-    if (!isPresent) clearTimeout(single.current);
-  }, [isPresent]);
-
-  // Mirror this card's position to the buttons and the card underneath, but only while it is the live card.
-  const live = useRef(true);
-  live.current = isPresent;
-  useMotionValueEvent(x, "change", (v) => live.current && shared.x.set(v));
-  useMotionValueEvent(y, "change", (v) => live.current && shared.y.set(v));
-
-  // Start where the card underneath already was (no pop), or where Undo's card flew off to.
-  const [initial] = useState(() => (enterFrom ? { ...awayPose(enterFrom), opacity: enterFrom === "liked" ? 0 : 1 } : { scale: 0.94 + 0.06 * pull.get() }));
-
-  const onDragEnd = (event, { offset, velocity }) => {
-    if (event.type === "pointercancel") return; // iOS took the gesture (edge swipe, Control Center): never rate
-    const horizontal = Math.abs(offset.x) > Math.abs(offset.y);
-    const dist = horizontal ? offset.x : offset.y;
-    const speed = horizontal ? velocity.x : velocity.y;
-    const flicked = Math.abs(dist) > 24 && dist * speed > 0 && Math.abs(speed) > FLICK;
-    if (Math.abs(dist) < THRESHOLD && !flicked) return; // springs back via dragSnapToOrigin
-    onRate(BY_SWIPE[horizontal ? (dist > 0 ? "right" : "left") : dist > 0 ? "down" : "up"], card.id);
-  };
-
-  // Motion only fires onTap when the press did not turn into a drag.
-  const onTap = (e, info) => {
-    if (travel.current >= 10) return; // that was a swipe or a spring-back, not a tap
-    if (e.target.closest?.("button")) return; // the Details pill handles itself
-    clearTimeout(single.current);
-    if (e.timeStamp - lastTap.current < DOUBLE_TAP) {
-      lastTap.current = 0;
-      return onRate("liked", card.id, info.point);
-    }
-    lastTap.current = e.timeStamp;
-    // Wait out the double-tap window; skip it if a sheet opened in the meantime.
-    single.current = setTimeout(() => !document.querySelector("dialog[open]") && onDetails(card.id), DOUBLE_TAP);
-  };
-
-  return (
-    <motion.article
-      className="card tinted"
-      aria-label={`${card.title}, ${card.type}, ${card.year}`}
-      style={{ x, y, rotate, "--raw": raw, zIndex: isPresent ? 2 : leaving?.rating ? 3 : 1, pointerEvents: isPresent ? "auto" : "none" }}
-      drag={isPresent}
-      dragSnapToOrigin
-      whileDrag={{ scale: 1.03 }}
-      onPointerDown={() => (travel.current = 0)}
-      onDragStart={() => clearTimeout(single.current)}
-      onDrag={(_, info) => (travel.current = Math.max(travel.current, Math.hypot(info.offset.x, info.offset.y)))}
-      onDragEnd={onDragEnd}
-      onTap={onTap}
-      variants={cardVariants}
-      custom={{ rating: null, undo: !!enterFrom }}
-      initial={initial}
-      animate="center"
-      exit="exit"
-    >
-      <CardFace card={card} why={why} onTint={onTint} onDetails={onDetails} onFav={(id, point) => travel.current < 10 && onFav(id, point)}>
-        {Object.keys(BY_SWIPE).map((dir) => (
-          <Stamp key={dir} dir={dir} x={x} y={y} />
-        ))}
-      </CardFace>
-    </motion.article>
-  );
-}
-
-// The label that lands on the card for whichever direction it is being pulled.
-function Stamp({ dir, x, y }) {
-  const rating = BY_SWIPE[dir];
-  const { Icon, label } = RATINGS[rating];
-  const amount = useTransform(() => progress(dir, x.get(), y.get()));
-  const opacity = useTransform(amount, [0.15, 1], [0, 1]);
-  const scale = useTransform(amount, [0.15, 1], [1.25, 1]);
-  return (
-    <motion.span className="stamp" data-dir={dir} data-rating={rating} style={{ opacity, scale }} aria-hidden="true">
-      <Icon size={20} weight="bold" />
-      {label}
-    </motion.span>
-  );
-}
-
-// The next card, waiting underneath. It grows toward full size as the top card is pulled away.
-function Peek({ card, why, raw, pull, onTint }) {
-  const scale = useTransform(pull, [0, 1], [0.94, 1]);
-  const opacity = useTransform(pull, [0, 1], [0.5, 1]);
-  return (
-    <motion.article className="card peek tinted" aria-hidden="true" style={{ scale, opacity, "--raw": raw }}>
-      <CardFace card={card} why={why} onTint={onTint} />
-    </motion.article>
-  );
-}
-
-function RateButton({ name, shared, disabled, onClick }) {
-  const { Icon, label, short, swipe, key, solid } = RATINGS[name];
-  const size = name === "liked" ? 28 : 24;
-  // Fills with its colour as the card is dragged its way.
-  const fill = useTransform(() => (swipe ? progress(swipe, shared.x.get(), shared.y.get()) : 0));
+function RateButton({ name, on, disabled, onClick }) {
+  const { Icon, label, short, solid } = RATINGS[name];
   return (
     <motion.button
       className="rate"
       data-rating={name}
       disabled={disabled}
+      aria-pressed={on}
       onClick={onClick}
       aria-label={`${short}: ${label}`}
-      aria-keyshortcuts={key}
       whileTap={{ scale: 0.88 }}
       transition={{ type: "spring", bounce: 0.4, visualDuration: 0.18 }}
     >
       <span className="disc">
-        <Icon size={size} weight={name === "liked" ? "fill" : "bold"} aria-hidden="true" />
-        {swipe && (
-          <motion.span className="fill" style={{ opacity: fill }} aria-hidden="true">
-            <Icon size={size} weight={solid} />
-          </motion.span>
-        )}
+        <Icon size={name === "liked" ? 28 : 24} weight={on ? solid : "bold"} aria-hidden="true" />
       </span>
       <span aria-hidden="true">{short}</span>
     </motion.button>
   );
 }
 
-function Empty({ filtered, total, onFilters, onClear, onLists }) {
-  // The rating buttons just became disabled, so move focus here instead of losing it.
-  const heading = useRef(null);
-  useEffect(() => heading.current?.focus(), []);
+function End({ filtered, skipped, onFilters, onClear, onLists, onRestart }) {
   return (
     <section className="deck-empty">
-      <h2 tabIndex={-1} ref={heading}>
-        {filtered ? "Nothing left here" : "Deck finished"}
-      </h2>
-      <p>{filtered ? "You've rated everything that fits these filters." : `You've rated all ${total} titles.`}</p>
+      <h2>{filtered ? "Nothing left here" : "That's everything"}</h2>
+      <p>
+        {skipped
+          ? "You've scrolled through every title that fits. The ones you didn't rate come around again."
+          : filtered
+            ? "You've rated everything that fits these filters."
+            : "You've rated every title."}
+      </p>
       <div className="actions">
+        {skipped && (
+          <button className="btn primary" onClick={onRestart}>
+            Start over
+          </button>
+        )}
         {filtered && (
           <>
-            <button className="btn primary" onClick={onFilters}>
+            <button className={skipped ? "btn" : "btn primary"} onClick={onFilters}>
               Change filters
             </button>
             <button className="btn" onClick={onClear}>
@@ -268,7 +127,7 @@ function Empty({ filtered, total, onFilters, onClear, onLists }) {
             </button>
           </>
         )}
-        {!filtered && (
+        {!filtered && !skipped && (
           <button className="btn primary" onClick={onLists}>
             Open lists
           </button>
@@ -278,50 +137,82 @@ function Empty({ filtered, total, onFilters, onClear, onLists }) {
   );
 }
 
-export default function Deck({ deck, total, leaving, back, tints, whyOf, reduce, filters, canUndo, onRate, onUndo, onDetails, onFav, onTint, onFilters, onClearFilters, onLists }) {
-  const [top, next, third] = deck;
-  const dragX = useMotionValue(0);
-  const dragY = useMotionValue(0);
-  const shared = useRef({ x: dragX, y: dragY }).current;
-  const pull = useTransform(() => Math.min(Math.hypot(dragX.get(), dragY.get()) / THRESHOLD, 1));
+// feed: the titles shown so far this session plus the next few, in order. at: which page is on screen.
+// ended: nothing more to add, so a closing page follows the last title.
+export default function Deck({ feed, at, ended, left, rated, favs, tints, whyOf, reduce, filters, onAt, onRate, onDetails, onFav, onTint, onFilters, onClearFilters, onLists, onRestart }) {
+  const scroller = useRef(null);
+  const current = feed[at];
+  const pages = feed.length + (ended ? 1 : 0);
 
-  // A new top card starts centred, so the shared position resets with it.
-  useEffect(() => {
-    dragX.jump(0);
-    dragY.jump(0);
-  }, [top?.id, dragX, dragY]);
+  // Coming back from another tab: return to the page you were on.
+  useLayoutEffect(() => {
+    scroller.current.scrollTop = at * scroller.current.clientHeight;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  // Warm up the picture two cards down so it is ready when it surfaces.
+  const go = (i) => {
+    const el = scroller.current;
+    if (el && i >= 0 && i < pages) el.scrollTo({ top: i * el.clientHeight, behavior: reduce ? "auto" : "smooth" });
+  };
+  const goRef = useRef(go);
+  goRef.current = go;
+  const atRef = useRef(at);
+  atRef.current = at;
+
+  // Up and down arrows (and Page Up/Down) move through the feed when no sheet is open.
   useEffect(() => {
-    if (!third?.poster) return;
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.src = imageUrl(third.poster, "w780");
-  }, [third]);
+    const onKey = (e) => {
+      if (e.altKey || e.ctrlKey || e.metaKey || document.querySelector("dialog[open]") || e.target.closest?.("input, textarea")) return;
+      const step = { ArrowDown: 1, PageDown: 1, ArrowUp: -1, PageUp: -1 }[e.key];
+      if (!step) return;
+      e.preventDefault();
+      goRef.current(atRef.current + step);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  // After a rating the feed moves on by itself, unless you already scrolled away.
+  const advance = useRef(0);
+  useEffect(() => () => clearTimeout(advance.current), []);
+  const press = (name) => {
+    if (!current) return;
+    const from = at;
+    clearTimeout(advance.current);
+    if (onRate(name, current.id)) advance.current = setTimeout(() => atRef.current === from && goRef.current(from + 1), 320);
+  };
 
   return (
     <section className="deck">
-      <div className="stage">
-        {next && <Peek key={next.id} card={next} why={whyOf(next.id)} raw={rawTint(next, tints[next.id])} pull={pull} onTint={onTint} />}
-        <AnimatePresence custom={{ rating: leaving }} initial={false}>
-          {top && (
-            <SwipeCard
-              key={top.id}
-              card={top}
-              why={whyOf(top.id)}
-              raw={rawTint(top, tints[top.id])}
-              shared={shared}
-              pull={pull}
-              enterFrom={back?.id === top.id ? back.rating : null}
-              reduce={reduce}
-              onRate={onRate}
-              onDetails={onDetails}
-              onFav={onFav}
-              onTint={onTint}
-            />
-          )}
-        </AnimatePresence>
-        {!top && <Empty filtered={filters > 0} total={total} onFilters={onFilters} onClear={onClearFilters} onLists={onLists} />}
+      <div
+        className="feed"
+        ref={scroller}
+        onScroll={(e) => {
+          const i = Math.round(e.currentTarget.scrollTop / e.currentTarget.clientHeight);
+          if (i !== atRef.current) onAt(i);
+        }}
+      >
+        {feed.map((card, i) => (
+          <div className="slide" key={card.id}>
+            {/* Only the pages around the one on screen are drawn; the rest just hold their place. */}
+            {Math.abs(i - at) <= 2 && (
+              <Slide
+                card={card}
+                why={whyOf(card.id)}
+                raw={rawTint(card, tints[card.id])}
+                fav={favs.has(card.id)}
+                onTint={onTint}
+                onDetails={onDetails}
+                onFav={onFav}
+              />
+            )}
+          </div>
+        ))}
+        {ended && (
+          <div className="slide">
+            <End filtered={filters > 0} skipped={left > 0} onFilters={onFilters} onClear={onClearFilters} onLists={onLists} onRestart={onRestart} />
+          </div>
+        )}
       </div>
 
       <div className="topbar">
@@ -335,25 +226,21 @@ export default function Deck({ deck, total, leaving, back, tints, whyOf, reduce,
           )}
         </button>
         <p className="pill solid stat">
-          <span className="sr-only">{deck.length} left</span>
+          <span className="sr-only">{left} not rated yet</span>
           <span className="tick" aria-hidden="true">
             <AnimatePresence mode="popLayout" initial={false}>
-              <motion.b key={deck.length} initial={{ y: 8, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: -8, opacity: 0 }} transition={{ duration: 0.18 }}>
-                {deck.length}
+              <motion.b key={left} initial={{ y: 8, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: -8, opacity: 0 }} transition={{ duration: 0.18 }}>
+                {left}
               </motion.b>
             </AnimatePresence>
           </span>
           <span aria-hidden="true">left</span>
         </p>
-        <button className="pill solid" onClick={onUndo} aria-disabled={!canUndo}>
-          <ArrowCounterClockwise size={18} weight="bold" aria-hidden="true" />
-          <span className="txt">Undo</span>
-        </button>
       </div>
 
-      <nav className="rate-row" aria-label="Rate this title">
+      <nav className="rate-row" aria-label={current ? `Rate ${current.title}` : "Rate this title"}>
         {RATING_NAMES.map((name) => (
-          <RateButton key={name} name={name} shared={shared} disabled={!top} onClick={() => top && onRate(name, top.id)} />
+          <RateButton key={name} name={name} on={!!current && rated.get(current.id) === name} disabled={!current} onClick={() => press(name)} />
         ))}
       </nav>
     </section>
